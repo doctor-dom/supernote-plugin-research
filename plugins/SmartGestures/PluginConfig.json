@@ -1,0 +1,10 @@
+{
+  "name": "SmartGestures",
+  "desc": "SmartGestures v0.1.1 (pre-save restored, cached+early bail kept)",
+  "iconPath": "assets/icon.png",
+  "versionName": "0.1.1",
+  "versionCode": "11",
+  "pluginID": "smartgestures001",
+  "pluginKey": "SmartGestures",
+  "jsMainPath": "index"
+}

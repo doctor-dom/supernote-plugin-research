@@ -1,0 +1,1 @@
+{"version":3,"names":["Layer","layerId","name","isCurrentLayer","isVisible"],"sourceRoot":"..\\..\\..\\src","sources":["model/Layer.ts"],"mappings":";;AAAA;AACA;AACA;AACA,OAAO,MAAMA,KAAK,CAAC;EACjB;EACOC,OAAO,GAAW,CAAC;;EAE1B;EACOC,IAAI,GAAW,EAAE;;EAExB;EACA;;EAEA;EACA;;EAEA;EACOC,cAAc,GAAY,KAAK;;EAEtC;EACOC,SAAS,GAAY,IAAI;;EAEhC;EACA;;EAEA;EACA;;EAEA;EACA;AACF","ignoreList":[]}

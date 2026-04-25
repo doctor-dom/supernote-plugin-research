@@ -1,0 +1,112 @@
+buildscript {
+    ext.getExtOrDefault = { name ->
+        return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties['RtnSupernotePluginCore_' + name]
+    }
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.7.2"
+        // noinspection DifferentKotlinGradleVersion
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
+    }
+}
+
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+apply plugin: "com.facebook.react"
+
+def getExtOrIntegerDefault(name) {
+    return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["RtnSupernotePluginCore_" + name]).toInteger()
+}
+
+android {
+    namespace "com.ratta.supernote.pluginlib"
+
+    compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
+
+    defaultConfig {
+        minSdkVersion getExtOrIntegerDefault("minSdkVersion")
+        targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
+
+        ndk {
+//            abiFilters 'armeabi-v7a'
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    lintOptions {
+        disable "GradleCompatible"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += [
+                    "generated/java",
+                    "generated/jni"
+            ]
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    google()
+}
+
+def kotlin_version = getExtOrDefault("kotlinVersion")
+
+repositories {
+    flatDir {
+        dirs 'libs' //this way we can find the .aar file in libs folder
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation "com.facebook.react:react-android"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+
+    implementation 'io.reactivex.rxjava3:rxandroid:3.0.2'
+    implementation 'io.reactivex.rxjava3:rxjava:3.1.5'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'io.github.molihuan:pathselector:1.1.16'
+    implementation 'com.alibaba:fastjson:1.2.83'
+//    implementation project(':plugincommonlib')
+
+
+    compileOnly(name: 'plugincommonlib', ext: 'aar')
+//    compileOnly files('libs/plugincommonlib.aar')
+}
+
+react {
+    jsRootDir = file("../src/")
+    libraryName = "PluginPackage"
+    codegenJavaPackageName = "com.ratta.supernote.pluginlib"
+}
