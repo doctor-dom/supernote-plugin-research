@@ -14,6 +14,7 @@ import {
 import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasks, completeTask} from '../api/todoist';
+import {log, logError} from '../utils/debug';
 
 // Todoist priority is inverted: 4=urgent(P1), 1=normal(P4)
 const PRIORITY_LABELS: Record<number, string> = {
@@ -36,17 +37,24 @@ export default function TaskList({onNavigate}: Props) {
     setLoading(true);
     setError('');
 
+    log('TaskList', 'Starting fetchTasks');
     setConfigLoader(loadConfig);
 
     try {
+      log('TaskList', 'Loading config...');
       const config = await loadConfig();
+      log('TaskList', `Config loaded. Token: ${config.apiToken ? 'present' : 'MISSING'}`);
+
       if (!config.apiToken) {
         setError('No API token. Tap the gear icon to configure.');
         setLoading(false);
         return;
       }
 
+      log('TaskList', 'Calling getTasks...');
       const result = await getTasks();
+      log('TaskList', `Got ${result?.length ?? 'null'} tasks`);
+
       // Sort: due today first, then by due date, then no date last
       result.sort((a: any, b: any) => {
         const aDate = a.due?.date || '9999';
@@ -55,6 +63,7 @@ export default function TaskList({onNavigate}: Props) {
       });
       setTasks(result);
     } catch (err: any) {
+      logError('TaskList', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -107,6 +116,9 @@ export default function TaskList({onNavigate}: Props) {
       <View style={styles.header}>
         <Text style={styles.title}>Tasks</Text>
         <View style={styles.headerButtons}>
+          <Pressable style={styles.headerButton} onPress={() => onNavigate('debug')}>
+            <Text style={styles.headerButtonText}>Log</Text>
+          </Pressable>
           <Pressable style={styles.headerButton} onPress={fetchTasks}>
             <Text style={styles.headerButtonText}>Refresh</Text>
           </Pressable>

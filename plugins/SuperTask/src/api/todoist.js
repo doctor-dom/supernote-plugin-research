@@ -5,6 +5,8 @@
  * fetch() which works on Supernote without restrictions.
  */
 
+import {log, logError} from '../utils/debug';
+
 const TODOIST_API = 'https://api.todoist.com/api/v1';
 
 let _configLoader = null;
@@ -18,12 +20,17 @@ async function todoistFetch(path, options = {}) {
     throw new Error('Config loader not set. Call setConfigLoader first.');
   }
 
+  log('API', `Loading config...`);
   const config = await _configLoader();
   if (!config.apiToken) {
     throw new Error('No API token configured');
   }
 
-  const response = await fetch(`${TODOIST_API}${path}`, {
+  const url = `${TODOIST_API}${path}`;
+  const method = options.method || 'GET';
+  log('API', `${method} ${url}`);
+
+  const response = await fetch(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${config.apiToken}`,
@@ -31,6 +38,8 @@ async function todoistFetch(path, options = {}) {
       ...options.headers,
     },
   });
+
+  log('API', `Response: ${response.status}`);
 
   if (!response.ok) {
     const text = await response.text();
@@ -57,6 +66,7 @@ export async function createTask({content, description, projectId, priority, due
   if (priority) body.priority = priority;
   if (dueString) body.due_string = dueString;
 
+  log('API', `Creating task: ${content}`);
   return todoistFetch('/tasks', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -79,6 +89,7 @@ export async function deleteTask(taskId) {
 }
 
 export async function testConnection() {
+  log('API', 'Testing connection...');
   const projects = await getProjects();
   const tasks = await getTasks();
   return {
