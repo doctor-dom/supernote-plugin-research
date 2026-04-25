@@ -29,7 +29,8 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 - All SDK API calls are async (return Promises)
 - `saveCurrentNote()` is mandatory before `deleteElements()` to avoid stale state
 - Plugin directory via `getPluginDirPath()` for persistent local storage (JSON, config)
-- `fetch()` works for HTTP calls -- no restrictions on network access
+- `fetch()` works for HTTP calls -- confirmed on-device (Todoist API returned real responses)
+- **CAUTION:** `FileUtils.writeFile()` and `fetch('file://...')` are unverified -- caused "undefined is not a function" on device. Need to investigate which file I/O APIs actually exist in the JS bridge before using them.
 
 ### Learnings from SmartGestures development
 - `event_pen_up` payload elements can't be read directly; must call `getLastElement()`
@@ -46,12 +47,28 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 - Use typography (bold, size) and borders for visual hierarchy, not color
 - Minimize full-screen refreshes
 
+### Debugging on-device
+- No dev console on Supernote. Use an in-memory debug logger that renders in the plugin UI.
+- Pattern: `src/utils/debug.js` collects `[timestamp] tag: message` entries, screens subscribe via `setListener()`.
+- Add a "Log" button to the main screen that navigates to a debug view.
+- Log at every boundary: config load, API request/response, SDK calls, screen transitions.
+- Export logs to `/EXPORT/` directory so they can be retrieved via USB.
+
+### API token management
+- Typing tokens on the e-ink keyboard is impractical.
+- Use a `config.local.js` file at plugin root (gitignored) that gets bundled into the Hermes build.
+- Config loader: `require('../../config.local')` with fallback for missing file and `.default` vs direct export.
+
+### External APIs
+- **Todoist API v1** (not v2). Base URL: `https://api.todoist.com/api/v1`. The REST v2 endpoint (`/rest/v2`) returns 410 Gone as of April 2026.
+
 ### Build & test cycle
 1. Edit code
 2. Run `bash buildPlugin.sh` from the plugin directory
 3. Copy `build/outputs/<PluginName>.snplg` to Supernote via USB (MyStyle/ directory)
 4. Settings > Apps > Plugins > Install (or reinstall)
 5. Open a note, tap plugin button to test
+6. If something fails, check the in-app debug log (Log button) or export log via USB
 
 ### Git practices
 - Commit frequently -- previous sessions have lost work from uncommitted state

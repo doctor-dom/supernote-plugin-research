@@ -14,7 +14,7 @@ import {PluginManager} from 'sn-plugin-lib';
 import TaskList from './src/screens/TaskList';
 import Capture from './src/screens/Capture';
 import Config from './src/screens/Config';
-import {log, logError, getEntries, setListener} from './src/utils/debug';
+import {log, logError, getEntries, setListener, exportLog} from './src/utils/debug';
 
 type Screen = 'tasks' | 'capture-lasso' | 'capture-doc' | 'config' | 'debug';
 
@@ -22,6 +22,7 @@ function App(): React.JSX.Element {
   const [screen, setScreen] = useState<Screen>('tasks');
   const [error, setError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [exportStatus, setExportStatus] = useState('');
 
   useEffect(() => {
     setListener(setDebugLog);
@@ -61,6 +62,15 @@ function App(): React.JSX.Element {
           <View style={styles.debugButtons}>
             <Pressable
               style={styles.debugButton}
+              onPress={async () => {
+                setExportStatus('Exporting...');
+                const result = await exportLog();
+                setExportStatus(result);
+              }}>
+              <Text style={styles.debugButtonText}>Export</Text>
+            </Pressable>
+            <Pressable
+              style={styles.debugButton}
               onPress={() => { setError(null); setScreen('tasks'); }}>
               <Text style={styles.debugButtonText}>Tasks</Text>
             </Pressable>
@@ -74,6 +84,9 @@ function App(): React.JSX.Element {
         {error && (
           <Text style={styles.errorText}>{error}</Text>
         )}
+        {exportStatus ? (
+          <Text style={styles.exportStatus}>{exportStatus}</Text>
+        ) : null}
         <ScrollView style={styles.debugScroll}>
           {getEntries().map((entry, i) => (
             <Text key={i} style={styles.debugEntry}>{entry}</Text>
@@ -146,6 +159,13 @@ const styles = StyleSheet.create({
     color: '#000000',
     marginBottom: 4,
     lineHeight: 16,
+  },
+  exportStatus: {
+    padding: 8,
+    fontSize: 13,
+    color: '#000000',
+    backgroundColor: '#e8e8e8',
+    textAlign: 'center',
   },
 });
 
