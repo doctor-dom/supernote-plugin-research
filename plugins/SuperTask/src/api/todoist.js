@@ -1,11 +1,11 @@
 /**
- * Todoist REST API v2 client
+ * Todoist API v1 client
  *
  * All task CRUD operations go through here. Uses the device's
  * fetch() which works on Supernote without restrictions.
  */
 
-const TODOIST_API = 'https://api.todoist.com/rest/v2';
+const TODOIST_API = 'https://api.todoist.com/api/v1';
 
 let _configLoader = null;
 
