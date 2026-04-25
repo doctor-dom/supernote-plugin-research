@@ -56,6 +56,9 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 
+# Local config with API tokens - never commit
+config.local.js
+
 # Ruby / CocoaPods
 **/Pods/
 /vendor/bundle/

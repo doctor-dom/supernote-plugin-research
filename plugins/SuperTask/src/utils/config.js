@@ -1,9 +1,23 @@
 /**
- * Config management -- reads/writes config.json and projects-cache.json
- * from the plugin's persistent directory on the Supernote.
+ * Config management
+ *
+ * Loads config from two sources (in priority order):
+ * 1. On-device config.json (written via plugin dir) -- for runtime changes
+ * 2. Bundled config.local.js (baked into build) -- for the API token
+ *
+ * This avoids having to type a long API token on the e-ink keyboard.
+ * Just paste it in config.local.js before building.
  */
 
 import {PluginManager} from 'sn-plugin-lib';
+
+// Bundled config (build-time, gitignored)
+let bundledConfig = {};
+try {
+  bundledConfig = require('../../config.local').default;
+} catch {
+  // No config.local.js -- that's fine, user can enter token on-device
+}
 
 let pluginDir = null;
 
@@ -35,11 +49,7 @@ async function writeJsonFile(filename, data) {
   const dir = await getPluginDir();
   const path = `${dir}/${filename}`;
   const {FileUtils} = require('sn-plugin-lib');
-  // Write JSON string to file
   const content = JSON.stringify(data, null, 2);
-  // Use RN's filesystem or a simple write approach
-  // For now, we use the fetch-based write pattern that works on Supernote
-  const blob = new Blob([content], {type: 'application/json'});
   await FileUtils.writeFile(path, content);
 }
 
@@ -52,8 +62,9 @@ const DEFAULT_CONFIG = {
 };
 
 export async function loadConfig() {
+  // On-device config takes priority, then bundled, then defaults
   const saved = await readJsonFile('config.json');
-  return {...DEFAULT_CONFIG, ...saved};
+  return {...DEFAULT_CONFIG, ...bundledConfig, ...saved};
 }
 
 export async function saveConfig(config) {
