@@ -73,6 +73,10 @@ function App(): React.JSX.Element {
   const current = screenStack[screenStack.length - 1];
   const canGoBack = screenStack.length > 1;
 
+  useEffect(() => {
+    log('App', `SCREEN changed: "${current.name}" stackDepth=${screenStack.length} params=${current.params ? Object.keys(current.params).join(',') : 'none'}`);
+  }, [screenStack]);
+
   // Show debug log on error or when navigated to
   if (error || current.name === 'debug') {
     return (
@@ -122,8 +126,6 @@ function App(): React.JSX.Element {
   }
 
   const nav = {push, pop, resetTo, canGoBack};
-
-  log('App', `RENDER screen="${current.name}" stackDepth=${screenStack.length} params=${current.params ? Object.keys(current.params).join(',') : 'none'}`);
 
   return (
     <View style={styles.container}>
