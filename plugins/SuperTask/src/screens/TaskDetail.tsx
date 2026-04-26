@@ -71,12 +71,19 @@ export default function TaskDetail({nav, task, projects}: Props) {
         dueString: dueString.trim() || undefined,
         projectId: projectId || undefined,
       });
-      setStatus('Saved');
       log('TaskDetail', `Updated task ${task.id}`);
-      setTimeout(() => nav.pop(), 500);
+      // Update the task reference so isDirty resets
+      task.content = content.trim();
+      task.description = description.trim();
+      task.priority = priority;
+      task.due = dueString.trim() ? {...(task.due || {}), string: dueString.trim()} : task.due;
+      task.project_id = projectId;
+      setStatus('Saved');
+      setTimeout(() => setStatus(''), 1500);
     } catch (err: any) {
       logError('TaskDetail', err);
       setStatus(`Error: ${err.message}`);
+    } finally {
       setSaving(false);
     }
   };
@@ -119,6 +126,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
   };
 
   return (
+    <View style={styles.wrapper}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Pressable onPress={() => { log('TaskDetail', 'BACK pressed'); nav.pop(); }}>
@@ -199,19 +207,23 @@ export default function TaskDetail({nav, task, projects}: Props) {
         </Text>
       </Pressable>
 
-      {status ? (
-        <View style={styles.statusBox}>
-          <Text style={styles.statusText}>{status}</Text>
-        </View>
-      ) : null}
     </ScrollView>
+    {status ? (
+      <View style={styles.overlay}>
+        <Text style={styles.overlayText}>{status}</Text>
+      </View>
+    ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
+  wrapper: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
     padding: 24,
@@ -292,15 +304,21 @@ const styles = StyleSheet.create({
   saveTextDisabled: {
     color: '#cccccc',
   },
-  statusBox: {
-    padding: 16,
-    borderWidth: 1,
+  overlay: {
+    position: 'absolute',
+    bottom: 24,
+    left: 24,
+    right: 24,
+    padding: 14,
+    borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
   },
-  statusText: {
-    fontSize: 14,
+  overlayText: {
+    fontSize: 15,
+    fontWeight: '700',
     color: '#000000',
   },
 });
