@@ -55,6 +55,13 @@ export default function TaskList({onNavigate}: Props) {
       const result = await getTasks();
       log('TaskList', `Got ${result?.length ?? 'null'} tasks`);
 
+      if (!Array.isArray(result)) {
+        log('TaskList', `Unexpected result type: ${typeof result}`);
+        setTasks([]);
+        setLoading(false);
+        return;
+      }
+
       // Sort: due today first, then by due date, then no date last
       result.sort((a: any, b: any) => {
         const aDate = a.due?.date || '9999';

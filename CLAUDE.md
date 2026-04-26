@@ -29,8 +29,21 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 - All SDK API calls are async (return Promises)
 - `saveCurrentNote()` is mandatory before `deleteElements()` to avoid stale state
 - Plugin directory via `getPluginDirPath()` for persistent local storage (JSON, config)
-- `fetch()` works for HTTP calls -- confirmed on-device (Todoist API returned real responses)
-- **CAUTION:** `FileUtils.writeFile()` and `fetch('file://...')` are unverified -- caused "undefined is not a function" on device. Need to investigate which file I/O APIs actually exist in the JS bridge before using them.
+- `fetch()` works for HTTP/HTTPS calls -- confirmed on-device (Todoist API, dev log server)
+
+### SDK method locations (which class has which method)
+- **PluginCommAPI**: `getCurrentFilePath()`, `getCurrentPageNum()`, `getNoteSystemTemplates()`, `recognizeElements()`
+- **PluginNoteAPI**: `insertText()` (current note only), `saveCurrentNote()`, `getLastElement()`
+- **PluginFileAPI**: `insertElements(notePath, page, elements)`, `createNote()`, `getElements()`, `getNotePageTemplate()`, `getNoteTotalPageNum()`
+- **FileUtils**: `getExportPath()`, `exists()`, `makeDir()`, `copyFile()`, `deleteFile()`, `listFiles()` -- **NO `writeFile()` method exists**
+- **PluginManager**: `getPluginDirPath()`, `closePluginView()`, `registerButton()`, `getDeviceType()`
+
+### File I/O limitations (confirmed on-device)
+- **`FileUtils.writeFile()` does not exist** -- not in the TurboModule interface at all
+- **`fetch('file://...')` does not work** -- "undefined is not a function"
+- **`PluginFileAPI.createNote()` fails with error 802** when system template path doesn't resolve to a file on device
+- **ADB is locked down** -- `adb devices` sees the Supernote, but `shell`, `logcat`, `push`, `pull` all return "error: not support command"
+- No known way to write arbitrary files to the filesystem from JS. Config persistence remains unsolved.
 
 ### Learnings from SmartGestures development
 - `event_pen_up` payload elements can't be read directly; must call `getLastElement()`
@@ -48,11 +61,15 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 - Minimize full-screen refreshes
 
 ### Debugging on-device
-- No dev console on Supernote. Use an in-memory debug logger that renders in the plugin UI.
-- Pattern: `src/utils/debug.js` collects `[timestamp] tag: message` entries, screens subscribe via `setListener()`.
-- Add a "Log" button to the main screen that navigates to a debug view.
+- No dev console on Supernote. ADB logcat is also blocked.
+- **Primary method: HTTP dev log server.** Plugin POSTs logs via `fetch()` to a local Node server on same wifi.
+  - Server: `node dev-server.js` in the plugin directory (zero dependencies)
+  - URL configured in `config.local.js` as `debugServerUrl` (e.g., `http://192.168.68.68:3000/log`)
+  - Logs print to terminal in real-time and save to `logs/` directory
+  - Button: "Upload Log" in the debug screen
+- **Fallback: in-app log viewer.** `src/utils/debug.js` collects `[timestamp] tag: message` entries, screens subscribe via `setListener()`.
+- **Fallback: insertText.** If dev server is unreachable, logs are inserted as a text box on the current note page.
 - Log at every boundary: config load, API request/response, SDK calls, screen transitions.
-- Export logs to `/EXPORT/` directory so they can be retrieved via USB.
 
 ### API token management
 - Typing tokens on the e-ink keyboard is impractical.
@@ -61,14 +78,16 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 
 ### External APIs
 - **Todoist API v1** (not v2). Base URL: `https://api.todoist.com/api/v1`. The REST v2 endpoint (`/rest/v2`) returns 410 Gone as of April 2026.
+- **Response format is paginated:** `{results: [...], next_cursor: "..."}` -- NOT a bare array. Always unwrap before using.
 
 ### Build & test cycle
-1. Edit code
-2. Run `bash buildPlugin.sh` from the plugin directory
-3. Copy `build/outputs/<PluginName>.snplg` to Supernote via USB (MyStyle/ directory)
-4. Settings > Apps > Plugins > Install (or reinstall)
-5. Open a note, tap plugin button to test
-6. If something fails, check the in-app debug log (Log button) or export log via USB
+1. Start dev log server: `cd plugins/<Name> && node dev-server.js`
+2. Edit code
+3. Run `bash buildPlugin.sh` from the plugin directory
+4. Copy `build/outputs/<PluginName>.snplg` to Supernote via USB (MyStyle/ directory)
+5. Settings > Apps > Plugins > Install (or reinstall)
+6. Open a note, tap plugin button to test
+7. Tap Log > Upload Log to send debug logs to your terminal
 
 ### Git practices
 - Commit frequently -- previous sessions have lost work from uncommitted state

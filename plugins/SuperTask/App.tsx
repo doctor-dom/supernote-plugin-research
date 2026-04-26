@@ -63,11 +63,11 @@ function App(): React.JSX.Element {
             <Pressable
               style={styles.debugButton}
               onPress={async () => {
-                setExportStatus('Exporting...');
+                setExportStatus('Uploading...');
                 const result = await exportLog();
                 setExportStatus(result);
               }}>
-              <Text style={styles.debugButtonText}>Export</Text>
+              <Text style={styles.debugButtonText}>Upload Log</Text>
             </Pressable>
             <Pressable
               style={styles.debugButton}

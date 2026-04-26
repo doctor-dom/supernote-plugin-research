@@ -5,86 +5,129 @@
 ## Phase overview
 
 - [x] **Phase 1a: Scaffold** -- plugin structure, button registration, screen routing, build verified
-- [ ] **Phase 1b: Config + connection** -- Todoist API verified on-device, config persistence working
-- [ ] **Phase 2: Lasso capture** -- handwriting OCR, confirmation UI, POST to Todoist
-- [ ] **Phase 3: Task viewer** -- fetch/display tasks, complete, edit, manual add
-- [ ] **Phase 4: Polish** -- loading states, error handling, empty states, no-network handling
+- [x] **Phase 1b: Config + connection** -- Todoist API v1 verified on-device, tasks loading (29 tasks)
+- [x] **Phase 1c: Dev tooling** -- HTTP dev log server, logs stream to Mac in real-time
+- [ ] **Phase 2: Task viewer polish** -- complete/delete actions, manual add, pagination (cursor-based)
+- [ ] **Phase 3: Lasso capture** -- handwriting OCR, confirmation UI, POST to Todoist
+- [ ] **Phase 4: Doc capture** -- PDF text selection, same flow as lasso
+- [ ] **Phase 5: Config persistence** -- save token/settings to plugin directory, on-device config UI
+- [ ] **Phase 6: Polish** -- loading states, error handling, empty states, no-network handling
 
 ## Current status
 
-**Waiting on device test.** Build v0.1.0 is ready with debug logging. User needs to install the `.snplg` and report what the debug log shows when tapping "Tasks". This will tell us whether the Todoist v1 API works and whether the bundled config pattern loads correctly.
+**Phase 1 complete. Task list loads 29 tasks from Todoist API v1.** Dev log server confirmed working -- logs POST from device to Mac over wifi.
 
 ### What to do next session
 
-1. Get the device test results (debug log output from tapping Tasks, then tapping Log)
-2. Fix whatever the log reveals
-3. Once task list loads: test complete-task flow
-4. Once API round-trip is proven: test lasso capture (Button 200 -- "Add Task" in lasso bar)
-5. Add back config persistence (see "Deferred: config persistence" section below)
+1. **Phase 2: Task viewer improvements**
+   - Test complete-task flow (tap checkbox to close a task)
+   - Handle pagination -- API returns `{results: [...], next_cursor: "..."}`, currently only first page
+   - Add pull-to-refresh or manual refresh
+   - Add manual "Add Task" button from the task list screen
+   - Test delete-task flow
+
+2. **Phase 3: Lasso capture**
+   - Test Button 200 (lasso bar "Add Task") -- does `recognizeElements()` work?
+   - Build confirmation UI: show recognized text, let user edit, set priority/due/project
+   - POST to Todoist and confirm task appears
+
+3. **Phase 4: Doc capture**
+   - Test Button 300 (toolbar "Add Task" in DOC mode)
+   - Test `getLastSelectedText()` / `getSelectedText()` for PDF text extraction
+
+4. **Phase 5: Config persistence**
+   - Investigate which file I/O APIs actually work (see "Deferred: config persistence" below)
+   - Goal: save API token on-device so it survives reinstalls without rebuilding
+
+### Dev workflow
+
+```bash
+# 1. Start log server (keep running in terminal)
+cd plugins/SuperTask && node dev-server.js
+
+# 2. Edit code, then build
+bash buildPlugin.sh
+
+# 3. Copy build/outputs/SuperTask.snplg to Supernote via USB (MyStyle/)
+
+# 4. On device: Settings > Apps > Plugins > Install
+
+# 5. Open a note, tap plugin button, test feature
+
+# 6. Tap Log > Upload Log -- logs appear in terminal + saved to logs/
+```
 
 ## Confirmed learnings
 
-### Todoist API v1 (not v2)
-- **The REST v2 API is deprecated.** `https://api.todoist.com/rest/v2` returns 410 Gone.
-- **Use v1:** `https://api.todoist.com/api/v1` -- same endpoint paths (`/tasks`, `/projects`, `/tasks/{id}/close`), just different base URL.
-- This was confirmed on-device: the plugin's `fetch()` reached Todoist and got a real 410 response back, proving network access works.
+### Todoist API v1 response format
+- **Response is paginated:** `{results: [...], next_cursor: "..."}` -- NOT a bare array
+- `getTasks()` and `getProjects()` unwrap this, checking for `results`, `items`, `tasks` keys
+- The REST v2 API (`/rest/v2`) returns 410 Gone as of April 2026
+- Base URL: `https://api.todoist.com/api/v1`
 
 ### fetch() works on Supernote
-- Confirmed by the 410 error response from the first build. The device can make HTTPS requests to external APIs.
+- Confirmed by successful 200 responses from Todoist API
+- HTTPS works, JSON parsing works, Authorization headers work
+
+### SDK API locations (which class has which method)
+- `PluginCommAPI.getCurrentFilePath()` -- NOT on PluginNoteAPI
+- `PluginCommAPI.getCurrentPageNum()` -- NOT on PluginNoteAPI
+- `PluginCommAPI.getNoteSystemTemplates()` -- system template list
+- `PluginNoteAPI.insertText()` -- insert text box on CURRENT note page only
+- `PluginFileAPI.insertElements(notePath, page, elements)` -- insert into ANY note
+- `PluginFileAPI.createNote()` -- requires a valid template path (error 802 if template file doesn't exist on device filesystem)
+- `FileUtils.getExportPath()` -- returns /EXPORT/ directory path (works)
+- **`FileUtils` has NO `writeFile()` method** -- confirmed by reading the TurboModule interface
+
+### What doesn't work for file I/O
+- `FileUtils.writeFile()` -- does not exist in the SDK
+- `fetch('file://...')` -- unverified, likely broken
+- `PluginFileAPI.createNote()` with system templates -- got error 802 "Background template file doesn't exist"
+- `PluginNoteAPI.getCurrentFilePath()` -- method doesn't exist on this class (it's on PluginCommAPI)
+- `adb shell`, `adb logcat`, `adb push`, `adb pull` -- Supernote ADB is locked down, only reports device presence
+
+### Dev logging via HTTP
+- `fetch()` can POST to a local dev server on the same wifi
+- `config.local.js` holds `debugServerUrl` (e.g., `http://192.168.68.68:3000/log`)
+- `dev-server.js` is a zero-dependency Node server that prints logs to terminal and saves to `logs/`
+- Button in debug screen: "Upload Log" POSTs all entries
+- Falls back to `insertText` on current note page if server unreachable
 
 ### Plugin scaffolding
-- Always scaffold from `template/`, never copy another plugin. Copying SmartGestures caused confusion about which project was being modified.
-- Rename all `HelloWorld`/`helloworld` references: app.json, package.json, PluginConfig.json, android package dir + kotlin files, ios dirs, build.gradle namespace.
-- Build with `bash buildPlugin.sh` -- pure JS plugins skip Gradle, build in under a minute.
+- Always scaffold from `template/`, never copy another plugin
+- Rename all `HelloWorld`/`helloworld` references in: app.json, package.json, PluginConfig.json, android package dir + kotlin files, ios dirs, build.gradle namespace
+- Build with `bash buildPlugin.sh` -- pure JS plugins skip Gradle, build in under a minute
 
 ### Bundled config pattern
-- Typing an API token on the e-ink keyboard is impractical.
-- Solution: `config.local.js` at project root (gitignored) holds the token. It's baked into the Hermes bundle at build time.
-- `src/utils/config.js` imports it with `require('../../config.local')` and falls back gracefully if missing.
-- The `.default` access pattern needs care: `const localConfig = require('...'); bundledConfig = localConfig.default || localConfig;` handles both ES module default exports and CommonJS.
+- `config.local.js` at project root (gitignored) holds API token + debug server URL
+- Baked into Hermes bundle at build time
+- `src/utils/config.js` imports with `require('../../config.local')` with fallback
+- `.default` access pattern: `localConfig.default || localConfig` handles both ES module and CommonJS exports
 
-### Debug logging on e-ink
-- No dev console available on Supernote. Debug info must be shown in the UI itself.
-- `src/utils/debug.js` collects timestamped log entries in memory.
-- App.tsx has a debug screen (navigable via "Log" button in TaskList header, or shown automatically on error).
-- All API calls and key state transitions log to this system.
-- Logging is at: config load, API request (method + URL), API response (status code), errors (with stack trace).
+### E-ink UI guidelines
+- Black text on white background, no grayscale gradients
+- Large tap targets (e-ink touch is less precise)
+- No animations -- e-ink can't render them
+- Use typography and borders for visual hierarchy, not color
 
 ## Deferred: config persistence
 
-The original config.js tried to read/write JSON files to the plugin directory using `PluginManager.getPluginDirPath()` + `FileUtils.writeFile()` + `fetch('file://...')`. This was stripped out because it caused "undefined is not a function" on device -- one of those APIs doesn't exist as expected.
+The SDK has no `writeFile()`. Investigated approaches that failed:
 
-**What was removed:**
-```javascript
-// Reading a JSON file from plugin directory
-async function readJsonFile(filename) {
-  const dir = await getPluginDir();             // PluginManager.getPluginDirPath()
-  const path = `${dir}/${filename}`;
-  const response = await fetch(`file://${path}`); // file:// URL fetch
-  return response.json();
-}
+| Approach | Result |
+|---|---|
+| `FileUtils.writeFile()` | Method doesn't exist in TurboModule interface |
+| `fetch('file://...')` | Unverified, likely broken |
+| `PluginFileAPI.createNote()` + `insertElements()` | Error 802: template file not found |
+| `adb push` | Supernote ADB is locked down |
 
-// Writing a JSON file to plugin directory
-async function writeJsonFile(filename, data) {
-  const dir = await getPluginDir();
-  const {FileUtils} = require('sn-plugin-lib');
-  await FileUtils.writeFile(path, content);     // THIS IS THE SUSPECT
-}
-```
+**Remaining approaches to investigate:**
+1. `AsyncStorage` from `@react-native-async-storage/async-storage` (would need to add dependency)
+2. React Native's built-in `Settings` module (iOS only, probably won't work)
+3. Direct TurboModule call to Android's SharedPreferences (may exist but undocumented)
+4. `PluginManager.getPluginDirPath()` + some undiscovered write API
 
-**What needs investigation:**
-1. Does `PluginManager.getPluginDirPath()` return successfully? (Add a debug log call to test)
-2. Does `fetch('file://...')` work for reading local files on the device?
-3. What file write APIs actually exist in sn-plugin-lib? Check:
-   - `FileUtils.writeFile`
-   - `FileUtils.copyFile` (write to temp then copy)
-   - React Native's built-in file system modules
-   - `AsyncStorage` from `@react-native-async-storage/async-storage` (would need to add dependency)
-
-**When to add back:**
-- After the core Todoist API round-trip is proven on device
-- Start by just testing `getPluginDirPath()` in a debug log
-- Then try each read/write approach one at a time
+**When to revisit:** After core task management features work. The bundled config pattern is adequate for development.
 
 ## File structure
 
@@ -92,24 +135,26 @@ async function writeJsonFile(filename, data) {
 plugins/SuperTask/
   index.js              -- entry point, button registration, global routing
   App.tsx               -- root component, screen router, error boundary, debug viewer
-  config.local.js       -- API token (gitignored, bundled at build time)
+  config.local.js       -- API token + debugServerUrl (gitignored, bundled at build time)
+  dev-server.js         -- local Node server for receiving debug logs over wifi
   PluginConfig.json     -- plugin metadata (supertask001, v0.1.0)
   package.json          -- deps: RN 0.79.2, sn-plugin-lib ^0.1.19
   PROGRESS.md           -- this file
   src/
-    api/todoist.js      -- Todoist API v1 client with debug logging
+    api/todoist.js      -- Todoist API v1 client, response unwrapping, debug logging
     utils/
       config.js         -- config loader (bundled token, persistence deferred)
-      debug.js          -- in-memory debug logger for on-device diagnostics
+      debug.js          -- debug logger with HTTP export to dev server
     screens/
-      TaskList.tsx      -- task list viewer with Log/Refresh/Close buttons
+      TaskList.tsx      -- task list viewer with sort-by-due, complete action, Log/Refresh/Close
       Capture.tsx       -- lasso OCR or DOC text capture, priority/due/project, submit
       Config.tsx        -- settings UI (API token entry, test connection)
   android/              -- standard RN android scaffold (com.supertask)
   ios/                  -- standard RN ios scaffold
+  logs/                 -- received debug logs from device (gitignored)
   assets/icon.png       -- toolbar icon (placeholder, same as template)
   buildPlugin.sh        -- build script (produces .snplg)
-  build/outputs/        -- SuperTask.snplg (258KB, gitignored)
+  build/outputs/        -- SuperTask.snplg (gitignored)
 ```
 
 ## Session log
@@ -117,40 +162,42 @@ plugins/SuperTask/
 ### 2026-04-25 -- Session 1: Scaffold, first device tests, debug logging
 
 **Repo setup:**
-- Discovered git repo was rooted at `/Users/alex` (home directory), tracking both Guitar and Supernote files
-- Initialized supernote-plugin-research as its own standalone git repo
+- Initialized supernote-plugin-research as standalone git repo
 - Created GitHub remote at `apclark31/supernote-plugin-research` (private, SSH)
-- Excluded `update.zip` (1.1GB firmware file) via .gitignore
-- Guitar project lives separately at `chord-viz/` with its own repo -> `apclark31/guitarVisualizer`
 
 **Plugin scaffold:**
-- Created SuperTask from SDK `template/` directory (not copied from SmartGestures)
-- Registered 4 entry points: toolbar NOTE (Tasks), lasso NOTE (Add Task), toolbar DOC (Add Task), config
-- Built App.tsx with screen routing via `global.__superTaskButtonId`
-- Created Todoist API client, config utility, and 3 screens (TaskList, Capture, Config)
-- Build verified: 258KB .snplg, clean Metro bundle
+- Created SuperTask from SDK template
+- 4 entry points: toolbar NOTE (Tasks), lasso NOTE (Add Task), toolbar DOC (Add Task), config
+- Todoist API client, config utility, debug logger, 3 screens
 
-**First device test:**
-- Todoist API returned 410 Gone -- REST v2 is deprecated, need v1
-- Confirmed: `fetch()` works, token is valid, network is reachable
-- Fixed API URL to `https://api.todoist.com/api/v1`
+**Device tests:**
+- Build 1: Todoist API returned 410 Gone (REST v2 deprecated), confirmed fetch() works
+- Build 2: "undefined is not a function" from filesystem APIs in config.js
+- Build 3: Stripped to bundled config only, added debug logging
 
-**Second device test:**
-- Got "undefined is not a function" error
-- Likely cause: filesystem APIs in config.js (`getPluginDirPath`, `FileUtils.writeFile`, or `fetch('file://...')`)
-- Fix: stripped config.js down to just return bundled token, no filesystem calls
-- Added debug logging system (`src/utils/debug.js`) with in-UI log viewer
+### 2026-04-25 -- Session 2: API fix, dev tooling, task list working
 
-**Third build (current):**
-- Simplified config (bundled token only)
-- Debug logging at all key points (config load, API calls, response codes, errors)
-- "Log" button in TaskList header to view debug entries
-- Error boundary in App.tsx shows debug log on crash
-- Awaiting device test
+**Todoist API v1 response parsing:**
+- API returns `{results: [...], next_cursor: "..."}`, not a bare array
+- `getTasks()` and `getProjects()` now unwrap the response, checking `results`/`items`/`tasks` keys
+- Added safety check in TaskList.tsx before calling `.sort()` on result
+- **Task list now loads 29 tasks successfully**
 
-**Commits:**
-1. `8472f75` Initial commit: full repo with all research, docs, SmartGestures, SDK source
-2. `54a9c5a` Add SuperTask plugin scaffold and repo CLAUDE.md
-3. `42eab6e` Add bundled config pattern for API token
-4. `8ffae7f` Fix Todoist API URL: /rest/v2 deprecated, use /api/v1
-5. `fa2d793` Add debug logging and simplify config to bundled token only
+**Log export attempts (what failed):**
+- `PluginNoteAPI.getCurrentFilePath()` -- doesn't exist (it's on PluginCommAPI)
+- `PluginFileAPI.createNote()` with system templates -- error 802 "template file doesn't exist"
+- dpaste.org -- service is down
+- ix.io -- service is down
+
+**Dev log server (what works):**
+- Created `dev-server.js` -- zero-dependency Node HTTP server
+- Plugin POSTs logs via `fetch()` to `http://<mac-ip>:3000/log`
+- Server URL configured in `config.local.js` as `debugServerUrl`
+- Logs print to terminal and save to `logs/` directory
+- Confirmed working: first log received shows full API call trace
+
+**ADB investigation:**
+- Supernote has ADB locked down -- `adb devices` sees it, but `shell`, `logcat`, `push`, `pull` all fail
+- Not viable for deployment or debugging
+
+**CLAUDE.md updated** with all learnings (SDK method locations, file I/O limitations, API format)

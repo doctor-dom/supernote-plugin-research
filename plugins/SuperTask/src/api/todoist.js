@@ -52,11 +52,28 @@ async function todoistFetch(path, options = {}) {
 
 export async function getTasks(filter) {
   const params = filter ? `?filter=${encodeURIComponent(filter)}` : '';
-  return todoistFetch(`/tasks${params}`);
+  const result = await todoistFetch(`/tasks${params}`);
+  log('API', `getTasks raw type: ${typeof result}, isArray: ${Array.isArray(result)}`);
+  if (Array.isArray(result)) return result;
+  // v1 API may wrap tasks in an object
+  if (result && typeof result === 'object') {
+    log('API', `getTasks keys: ${Object.keys(result).join(', ')}`);
+    if (Array.isArray(result.results)) return result.results;
+    if (Array.isArray(result.items)) return result.items;
+    if (Array.isArray(result.tasks)) return result.tasks;
+  }
+  log('API', `getTasks: unexpected format, returning empty array`);
+  return [];
 }
 
 export async function getProjects() {
-  return todoistFetch('/projects');
+  const result = await todoistFetch('/projects');
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === 'object') {
+    if (Array.isArray(result.results)) return result.results;
+    if (Array.isArray(result.items)) return result.items;
+  }
+  return [];
 }
 
 export async function createTask({content, description, projectId, priority, dueString}) {
@@ -94,7 +111,7 @@ export async function testConnection() {
   const tasks = await getTasks();
   return {
     ok: true,
-    projectCount: projects.length,
-    taskCount: tasks.length,
+    projectCount: projects?.length ?? 0,
+    taskCount: tasks?.length ?? 0,
   };
 }

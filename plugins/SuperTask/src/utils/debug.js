@@ -3,10 +3,18 @@
  * in the plugin UI. On the Supernote there's no dev console,
  * so this is how we see what's happening.
  *
- * Includes export-to-file so logs can be retrieved via USB.
+ * Export POSTs logs to a local dev server (node dev-server.js).
+ * Falls back to inserting text on the current note page.
  */
 
-import {PluginNoteAPI, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {PluginNoteAPI} from 'sn-plugin-lib';
+
+// Load debug server URL from bundled config
+let _debugServerUrl = '';
+try {
+  const cfg = require('../../config.local');
+  _debugServerUrl = (cfg.default || cfg).debugServerUrl || '';
+} catch {}
 
 const MAX_ENTRIES = 50;
 const entries = [];
@@ -41,20 +49,38 @@ export function clearEntries() {
 }
 
 /**
- * Export debug log to the current note page as a text element.
- * This is a known-working write path (SmartGestures uses insertText).
- * The text will appear on the current note page and can be read/photographed.
- *
- * Also attempts to write to /EXPORT/ directory if FileUtils is available.
+ * Export debug log by POSTing to the local dev server.
+ * Falls back to inserting text on the current note page.
  */
 export async function exportLog() {
-  const logText = entries.join('\n') || '(no log entries)';
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const logText = entries.length
+    ? `--- SuperTask Log ${timestamp} ---\n\n${entries.join('\n')}`
+    : '(no log entries)';
 
-  // Method 1: Insert as text on the current note page (known-working)
+  // Method 1: POST to local dev server
+  if (_debugServerUrl) {
+    try {
+      const resp = await fetch(_debugServerUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: logText,
+      });
+
+      if (resp.ok) {
+        return 'Log sent to dev server';
+      }
+      log('Export', `Dev server responded ${resp.status}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log('Export', `Dev server failed: ${msg}`);
+    }
+  }
+
+  // Method 2: Insert as text on the current note page
   try {
     await PluginNoteAPI.insertText({
-      textContentFull: `--- SuperTask Log ${timestamp} ---\n${logText}`,
+      textContentFull: logText,
       textRect: {left: 100, top: 100, right: 1400, bottom: 2000},
       fontSize: 14,
       textEditable: 1,
@@ -64,11 +90,9 @@ export async function exportLog() {
       textItalics: 0,
       textFrameWidthType: 0,
     });
-    log('Export', 'Log inserted on note page');
-    return 'Log inserted on current note page';
+    return 'Log inserted on note page (dev server unavailable)';
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log('Export', `insertText failed: ${msg}`);
     return `Export failed: ${msg}`;
   }
 }

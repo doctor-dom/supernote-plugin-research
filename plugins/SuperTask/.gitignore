@@ -59,6 +59,9 @@ yarn-error.log
 # Local config with API tokens - never commit
 config.local.js
 
+# Dev server logs
+logs/
+
 # Ruby / CocoaPods
 **/Pods/
 /vendor/bundle/
