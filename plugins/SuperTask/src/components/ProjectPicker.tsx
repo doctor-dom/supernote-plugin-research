@@ -1,9 +1,12 @@
 /**
  * ProjectPicker - Toggle buttons for selecting a project
+ *
+ * Uses a wrapping flexRow instead of horizontal ScrollView
+ * to avoid touch interception issues on e-ink.
  */
 
 import React from 'react';
-import {View, Text, Pressable, StyleSheet, ScrollView} from 'react-native';
+import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
 
 type Project = {
@@ -21,29 +24,25 @@ export default function ProjectPicker({projects, selectedId, onChange}: Props) {
   if (!projects.length) return null;
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroll}>
-      <View style={styles.row}>
-        {projects.map(p => (
-          <Pressable
-            key={p.id}
-            style={[styles.button, selectedId === p.id && styles.selected]}
-            onPress={() => { log('ProjectPicker', `pressed: ${p.name} (${p.id})`); onChange(selectedId === p.id ? null : p.id); }}>
-            <Text style={[styles.text, selectedId === p.id && styles.textSelected]}>
-              {p.name}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-    </ScrollView>
+    <View style={styles.row}>
+      {projects.map(p => (
+        <Pressable
+          key={p.id}
+          style={[styles.button, selectedId === p.id && styles.selected]}
+          onPress={() => { log('ProjectPicker', `pressed: ${p.name} (${p.id})`); onChange(selectedId === p.id ? null : p.id); }}>
+          <Text style={[styles.text, selectedId === p.id && styles.textSelected]}>
+            {p.name}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    flexGrow: 0,
-  },
   row: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   button: {

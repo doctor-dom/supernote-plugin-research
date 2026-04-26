@@ -16,6 +16,7 @@ import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
+import DatePicker from '../components/DatePicker';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -38,6 +39,7 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   const [projectId, setProjectId] = useState<string | null>(defaultProjectId || null);
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
     log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId}`);
@@ -73,13 +75,16 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   };
 
   return (
+    <View style={styles.wrapper}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Pressable onPress={() => { log('TaskAdd', 'BACK pressed'); nav.pop(); }}>
           <Text style={styles.backText}>{'< Back'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Add Task</Text>
-        <View style={{width: 60}} />
+        <Pressable onPress={() => { log('TaskAdd', 'LOG pressed'); nav.resetTo('debug'); }}>
+          <Text style={styles.backText}>Log</Text>
+        </Pressable>
       </View>
 
       <View style={styles.section}>
@@ -90,18 +95,27 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
           onChangeText={setContent}
           placeholder="What needs to be done?"
           multiline
-          autoFocus
         />
       </View>
 
       <View style={styles.section}>
         <Text style={styles.label}>Due Date</Text>
-        <TextInput
+        <Pressable
           style={styles.input}
-          value={dueString}
-          onChangeText={setDueString}
-          placeholder="tomorrow, next monday, Jan 5..."
-        />
+          onPress={() => { log('TaskAdd', 'DUE DATE pressed'); setShowDatePicker(true); }}>
+          <Text style={dueString ? styles.inputValue : styles.inputPlaceholder}>
+            {dueString || 'Tap to pick a date'}
+          </Text>
+        </Pressable>
+        {showDatePicker && (
+          <View style={styles.datePickerWrap}>
+            <DatePicker
+              value={dueString}
+              onChange={(date) => { log('TaskAdd', `date selected: ${date}`); setDueString(date); }}
+              onClose={() => setShowDatePicker(false)}
+            />
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -139,20 +153,23 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
           {submitting ? 'Adding...' : 'Add to Todoist'}
         </Text>
       </Pressable>
-
-      {status ? (
-        <View style={styles.statusBox}>
-          <Text style={styles.statusText}>{status}</Text>
-        </View>
-      ) : null}
     </ScrollView>
+    {status ? (
+      <View style={styles.overlay}>
+        <Text style={styles.overlayText}>{status}</Text>
+      </View>
+    ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
+  wrapper: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
     padding: 24,
@@ -190,9 +207,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000000',
   },
+  inputValue: {
+    fontSize: 16,
+    color: '#000000',
+  },
+  inputPlaceholder: {
+    fontSize: 16,
+    color: '#999999',
+  },
   inputMultiline: {
     minHeight: 60,
     textAlignVertical: 'top',
+  },
+  datePickerWrap: {
+    marginTop: 8,
   },
   submitButton: {
     paddingVertical: 16,
@@ -215,15 +243,21 @@ const styles = StyleSheet.create({
   submitTextDisabled: {
     color: '#cccccc',
   },
-  statusBox: {
-    padding: 16,
-    borderWidth: 1,
+  overlay: {
+    position: 'absolute',
+    bottom: 24,
+    left: 24,
+    right: 24,
+    padding: 14,
+    borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
   },
-  statusText: {
-    fontSize: 14,
+  overlayText: {
+    fontSize: 15,
+    fontWeight: '700',
     color: '#000000',
   },
 });

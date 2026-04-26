@@ -16,6 +16,7 @@ import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todo
 import {log, logError} from '../utils/debug';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
+import DatePicker from '../components/DatePicker';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -39,6 +40,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
     log('TaskDetail', `MOUNT task=${task?.id} content="${task?.content}" projects=${projects?.length}`);
@@ -166,13 +168,22 @@ export default function TaskDetail({nav, task, projects}: Props) {
 
       <View style={styles.section}>
         <Text style={styles.label}>Due Date</Text>
-        <TextInput
+        <Pressable
           style={styles.input}
-          value={dueString}
-          onChangeText={(t) => { log('TaskDetail', `dueString changed: "${t}"`); setDueString(t); }}
-          onFocus={() => log('TaskDetail', 'dueString FOCUSED')}
-          placeholder="tomorrow, next monday, Jan 5..."
-        />
+          onPress={() => { log('TaskDetail', 'DUE DATE pressed'); setShowDatePicker(true); }}>
+          <Text style={dueString ? styles.inputValue : styles.inputPlaceholder}>
+            {dueString || 'Tap to pick a date'}
+          </Text>
+        </Pressable>
+        {showDatePicker && (
+          <View style={styles.datePickerWrap}>
+            <DatePicker
+              value={dueString}
+              onChange={(date) => { log('TaskDetail', `date selected: ${date}`); setDueString(date); }}
+              onClose={() => setShowDatePicker(false)}
+            />
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -265,6 +276,17 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     color: '#000000',
+  },
+  inputValue: {
+    fontSize: 16,
+    color: '#000000',
+  },
+  inputPlaceholder: {
+    fontSize: 16,
+    color: '#999999',
+  },
+  datePickerWrap: {
+    marginTop: 8,
   },
   inputMultiline: {
     minHeight: 60,
