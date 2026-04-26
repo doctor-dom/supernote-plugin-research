@@ -49,13 +49,10 @@ export default function Config({onNavigate}: Props) {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    log('Config', 'MOUNT');
+    log('Config', 'MOUNT -- loading saved config');
     loadConfig().then(config => {
-      if (config.apiToken) {
-        setToken(config.apiToken);
-        // Auto-connect if we have a token from bundled config
-        handleConnect(config.apiToken);
-      }
+      log('Config', `Config loaded: hasToken=${!!config.apiToken} defaultTab=${config.defaultTab} defaultProjectId=${config.defaultProjectId}`);
+      if (config.apiToken) setToken(config.apiToken);
       if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
       if (config.defaultTab) setDefaultTab(config.defaultTab);
       if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
