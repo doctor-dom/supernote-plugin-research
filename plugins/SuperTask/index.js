@@ -49,17 +49,5 @@ PluginManager.registerButton(1, ['DOC'], {
 // Config button - settings/API token
 PluginManager.registerConfigButton();
 
-// Route button presses so App knows which screen to show
-global.__superTaskButtonId = null;
-
-PluginManager.registerButtonListener({
-  onButtonPress: (msg) => {
-    global.__superTaskButtonId = msg.id;
-  },
-});
-
-PluginManager.registerConfigButtonListener({
-  onConfigButtonPress: () => {
-    global.__superTaskButtonId = 'config';
-  },
-});
+// Listeners are registered in App.tsx (not here) so they can
+// directly update React state instead of relying on globals.

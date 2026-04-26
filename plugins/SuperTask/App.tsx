@@ -2,12 +2,13 @@
  * SuperTask - Root component
  *
  * Stack-based navigation for drill-down flows.
- * Capture/config/debug screens stay outside the stack.
+ * Button and config listeners registered here (not index.js) so they
+ * can directly update React state -- matches InkGames pattern.
  *
  * @format
  */
 
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useRef} from 'react';
 import {View, Text, ScrollView, Pressable, StyleSheet} from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
 
@@ -29,28 +30,7 @@ function App(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [exportStatus, setExportStatus] = useState('');
-
-  useEffect(() => {
-    setListener(setDebugLog);
-
-    try {
-      const buttonId = global.__superTaskButtonId;
-      log('App', `Button ID: ${JSON.stringify(buttonId)}`);
-
-      if (buttonId === 200) {
-        setScreenStack([{name: 'capture-lasso'}]);
-      } else if (buttonId === 300) {
-        setScreenStack([{name: 'capture-doc'}]);
-      } else if (buttonId === 'config') {
-        setScreenStack([{name: 'config'}]);
-      } else {
-        setScreenStack([{name: 'task-home'}]);
-      }
-    } catch (err) {
-      logError('App', err);
-      setError(String(err));
-    }
-  }, []);
+  const resetToRef = useRef<(name: string, params?: Record<string, any>) => void>();
 
   const push = useCallback((name: string, params?: Record<string, any>) => {
     log('App', `push: ${name} ${params ? JSON.stringify(params) : ''}`);
@@ -68,6 +48,44 @@ function App(): React.JSX.Element {
   const resetTo = useCallback((name: string, params?: Record<string, any>) => {
     log('App', `resetTo: ${name}`);
     setScreenStack([{name, params}]);
+  }, []);
+
+  // Keep a ref so listeners can call resetTo without stale closures
+  resetToRef.current = resetTo;
+
+  useEffect(() => {
+    setListener(setDebugLog);
+    log('App', 'MOUNT -- registering button listeners');
+
+    // Config button listener (onClick per InkGames pattern)
+    const configSub = PluginManager.registerConfigButtonListener({
+      onClick: () => {
+        log('App', 'CONFIG button pressed');
+        resetToRef.current?.('config');
+      },
+    });
+
+    // Regular button listener
+    const buttonSub = PluginManager.registerButtonListener({
+      onButtonPress: (event: any) => {
+        const id = event?.id;
+        log('App', `BUTTON pressed id=${id} event=${JSON.stringify(event)}`);
+
+        if (id === 200) {
+          resetToRef.current?.('capture-lasso');
+        } else if (id === 300) {
+          resetToRef.current?.('capture-doc');
+        } else {
+          resetToRef.current?.('task-home');
+        }
+      },
+    });
+
+    return () => {
+      log('App', 'UNMOUNT -- removing listeners');
+      if (configSub?.remove) configSub.remove();
+      if (buttonSub?.remove) buttonSub.remove();
+    };
   }, []);
 
   const current = screenStack[screenStack.length - 1];
