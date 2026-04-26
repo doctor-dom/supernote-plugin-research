@@ -2,7 +2,7 @@
  * TaskAdd - Create a new task from the task viewer
  */
 
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -39,7 +39,9 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  setConfigLoader(loadConfig);
+  useEffect(() => {
+    setConfigLoader(loadConfig);
+  }, []);
 
   const handleSubmit = async () => {
     if (!content.trim()) {
@@ -69,7 +71,7 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   };
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Pressable onPress={() => nav.pop()}>
           <Text style={styles.backText}>{'< Back'}</Text>

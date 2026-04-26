@@ -2,7 +2,7 @@
  * TaskDetail - View/edit/complete/delete a task
  */
 
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -31,16 +31,20 @@ type Props = {
 };
 
 export default function TaskDetail({nav, task, projects}: Props) {
-  const [content, setContent] = useState(task.content || '');
-  const [description, setDescription] = useState(task.description || '');
-  const [priority, setPriority] = useState(task.priority || 1);
-  const [dueString, setDueString] = useState(task.due?.string || task.due?.date || '');
-  const [projectId, setProjectId] = useState(task.project_id || null);
+  const [content, setContent] = useState(task?.content || '');
+  const [description, setDescription] = useState(task?.description || '');
+  const [priority, setPriority] = useState(task?.priority || 1);
+  const [dueString, setDueString] = useState(task?.due?.string || task?.due?.date || '');
+  const [projectId, setProjectId] = useState(task?.project_id || null);
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  setConfigLoader(loadConfig);
+  useEffect(() => {
+    log('TaskDetail', `MOUNT task=${task?.id} content="${task?.content}" projects=${projects?.length}`);
+    log('TaskDetail', `task keys: ${task ? Object.keys(task).join(', ') : 'NULL'}`);
+    setConfigLoader(loadConfig);
+  }, []);
 
   const isDirty =
     content !== (task.content || '') ||
@@ -50,6 +54,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
     projectId !== (task.project_id || null);
 
   const handleSave = async () => {
+    log('TaskDetail', `SAVE pressed. isDirty=${isDirty} saving=${saving} content="${content}"`);
     if (!content.trim()) {
       setStatus('Task title cannot be empty');
       return;
@@ -77,6 +82,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
   };
 
   const handleComplete = async () => {
+    log('TaskDetail', `COMPLETE pressed. taskId=${task?.id}`);
     setSaving(true);
     setStatus('Completing...');
     try {
@@ -92,6 +98,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
   };
 
   const handleDelete = async () => {
+    log('TaskDetail', `DELETE pressed. confirmDelete=${confirmDelete}`);
     if (!confirmDelete) {
       setConfirmDelete(true);
       return;
@@ -112,9 +119,9 @@ export default function TaskDetail({nav, task, projects}: Props) {
   };
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <Pressable onPress={() => nav.pop()}>
+        <Pressable onPress={() => { log('TaskDetail', 'BACK pressed'); nav.pop(); }}>
           <Text style={styles.backText}>{'< Back'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Edit Task</Text>
@@ -130,7 +137,8 @@ export default function TaskDetail({nav, task, projects}: Props) {
         <TextInput
           style={styles.input}
           value={content}
-          onChangeText={setContent}
+          onChangeText={(t) => { log('TaskDetail', `content changed: "${t.slice(0, 30)}"`); setContent(t); }}
+          onFocus={() => log('TaskDetail', 'content FOCUSED')}
           placeholder="Task title"
           multiline
         />
@@ -141,7 +149,8 @@ export default function TaskDetail({nav, task, projects}: Props) {
         <TextInput
           style={[styles.input, styles.inputMultiline]}
           value={description}
-          onChangeText={setDescription}
+          onChangeText={(t) => { log('TaskDetail', 'description changed'); setDescription(t); }}
+          onFocus={() => log('TaskDetail', 'description FOCUSED')}
           placeholder="Optional notes"
           multiline
         />
@@ -152,14 +161,15 @@ export default function TaskDetail({nav, task, projects}: Props) {
         <TextInput
           style={styles.input}
           value={dueString}
-          onChangeText={setDueString}
+          onChangeText={(t) => { log('TaskDetail', `dueString changed: "${t}"`); setDueString(t); }}
+          onFocus={() => log('TaskDetail', 'dueString FOCUSED')}
           placeholder="tomorrow, next monday, Jan 5..."
         />
       </View>
 
       <View style={styles.section}>
         <Text style={styles.label}>Priority</Text>
-        <PriorityPicker value={priority} onChange={setPriority} />
+        <PriorityPicker value={priority} onChange={(p) => { log('TaskDetail', `priority changed: ${p}`); setPriority(p); }} />
       </View>
 
       {projects.length > 0 && (
@@ -168,7 +178,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
           <ProjectPicker
             projects={projects}
             selectedId={projectId}
-            onChange={setProjectId}
+            onChange={(id) => { log('TaskDetail', `project changed: ${id}`); setProjectId(id); }}
           />
         </View>
       )}
