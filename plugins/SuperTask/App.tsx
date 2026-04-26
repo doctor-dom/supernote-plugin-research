@@ -2,8 +2,8 @@
  * SuperTask - Root component
  *
  * Stack-based navigation for drill-down flows.
- * Button and config listeners registered here (not index.js) so they
- * can directly update React state -- matches InkGames pattern.
+ * Reads initial button ID from global (set by index.js before mount),
+ * then registers listeners for subsequent presses.
  *
  * @format
  */
@@ -25,8 +25,17 @@ type ScreenEntry = {
   params?: Record<string, any>;
 };
 
+// Read the initial button ID set by index.js before React mounted
+function getInitialScreen(): ScreenEntry {
+  const buttonId = global.__superTaskButtonId;
+  if (buttonId === 200) return {name: 'capture-lasso'};
+  if (buttonId === 300) return {name: 'capture-doc'};
+  if (buttonId === 'config') return {name: 'config'};
+  return {name: 'task-home'};
+}
+
 function App(): React.JSX.Element {
-  const [screenStack, setScreenStack] = useState<ScreenEntry[]>([{name: 'task-home'}]);
+  const [screenStack, setScreenStack] = useState<ScreenEntry[]>([getInitialScreen()]);
   const [error, setError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [exportStatus, setExportStatus] = useState('');
@@ -50,27 +59,31 @@ function App(): React.JSX.Element {
     setScreenStack([{name, params}]);
   }, []);
 
-  // Keep a ref so listeners can call resetTo without stale closures
   resetToRef.current = resetTo;
 
   useEffect(() => {
     setListener(setDebugLog);
-    log('App', 'MOUNT -- registering button listeners');
 
-    // Config button listener (onClick per InkGames pattern)
+    const initial = global.__superTaskButtonId;
+    log('App', `MOUNT -- initial buttonId=${JSON.stringify(initial)} screen=${screenStack[0].name}`);
+
+    // Register listeners for subsequent button presses (e.g., switching
+    // between tasks and config without closing the plugin view)
     const configSub = PluginManager.registerConfigButtonListener({
       onClick: () => {
-        log('App', 'CONFIG button pressed');
+        log('App', 'CONFIG button pressed (listener)');
+        resetToRef.current?.('config');
+      },
+      onConfigButtonPress: () => {
+        log('App', 'CONFIG button pressed (listener/legacy)');
         resetToRef.current?.('config');
       },
     });
 
-    // Regular button listener
     const buttonSub = PluginManager.registerButtonListener({
       onButtonPress: (event: any) => {
         const id = event?.id;
-        log('App', `BUTTON pressed id=${id} event=${JSON.stringify(event)}`);
-
+        log('App', `BUTTON pressed id=${id} (listener)`);
         if (id === 200) {
           resetToRef.current?.('capture-lasso');
         } else if (id === 300) {

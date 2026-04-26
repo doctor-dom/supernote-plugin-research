@@ -49,5 +49,24 @@ PluginManager.registerButton(1, ['DOC'], {
 // Config button - settings/API token
 PluginManager.registerConfigButton();
 
-// Listeners are registered in App.tsx (not here) so they can
-// directly update React state instead of relying on globals.
+// Set initial button ID BEFORE React mounts.
+// The config event fires before App.tsx useEffect, so we need
+// to capture it here. App.tsx reads this global on mount.
+global.__superTaskButtonId = null;
+
+PluginManager.registerButtonListener({
+  onButtonPress: (msg) => {
+    global.__superTaskButtonId = msg.id;
+  },
+});
+
+// Config listener: try both callback names (SDK docs say onClick,
+// older code used onConfigButtonPress -- belt and suspenders)
+PluginManager.registerConfigButtonListener({
+  onClick: () => {
+    global.__superTaskButtonId = 'config';
+  },
+  onConfigButtonPress: () => {
+    global.__superTaskButtonId = 'config';
+  },
+});
