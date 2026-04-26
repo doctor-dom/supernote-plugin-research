@@ -40,10 +40,16 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [justCreated, setJustCreated] = useState(false);
+
+  const [postCreateAction, setPostCreateAction] = useState('prompt');
 
   useEffect(() => {
     log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId}`);
     setConfigLoader(loadConfig);
+    loadConfig().then(config => {
+      if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
+    });
   }, []);
 
   const handleSubmit = async () => {
@@ -64,14 +70,36 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
         priority,
         dueString: dueString.trim() || undefined,
       });
-      log('TaskAdd', `Created task: ${content.trim()}`);
-      setStatus('Task added!');
-      setTimeout(() => nav.pop(), 500);
+      log('TaskAdd', `Created task: ${content.trim()} postCreateAction=${postCreateAction}`);
+      setSubmitting(false);
+      if (postCreateAction === 'auto-back') {
+        setStatus('Task added!');
+        setTimeout(() => nav.pop(), 500);
+      } else {
+        setStatus('Task added!');
+        setJustCreated(true);
+      }
     } catch (err: any) {
       logError('TaskAdd', err);
       setStatus(`Error: ${err.message}`);
       setSubmitting(false);
     }
+  };
+
+  const handleAddAnother = () => {
+    log('TaskAdd', 'ADD ANOTHER pressed');
+    setContent('');
+    setDescription('');
+    setDueString('');
+    setShowDatePicker(false);
+    setStatus('');
+    setJustCreated(false);
+    // Keep project and priority as defaults for rapid entry
+  };
+
+  const handleDone = () => {
+    log('TaskAdd', 'DONE pressed');
+    nav.pop();
   };
 
   return (
@@ -154,7 +182,19 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
         </Text>
       </Pressable>
     </ScrollView>
-    {status ? (
+    {justCreated ? (
+      <View style={styles.overlay}>
+        <Text style={styles.overlayText}>Task added!</Text>
+        <View style={styles.overlayButtons}>
+          <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
+            <Text style={styles.overlayButtonText}>Add Another</Text>
+          </Pressable>
+          <Pressable style={[styles.overlayButton, styles.overlayButtonPrimary]} onPress={handleDone}>
+            <Text style={[styles.overlayButtonText, styles.overlayButtonTextPrimary]}>Done</Text>
+          </Pressable>
+        </View>
+      </View>
+    ) : status ? (
       <View style={styles.overlay}>
         <Text style={styles.overlayText}>{status}</Text>
       </View>
@@ -259,5 +299,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#000000',
+  },
+  overlayButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  overlayButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  overlayButtonPrimary: {
+    backgroundColor: '#000000',
+  },
+  overlayButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  overlayButtonTextPrimary: {
+    color: '#ffffff',
   },
 });

@@ -48,8 +48,18 @@ export default function TaskHome({nav}: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // Load default tab from config on mount
+  useEffect(() => {
+    loadConfig().then(config => {
+      if (config.defaultTab) {
+        log('TaskHome', `Setting default tab from config: ${config.defaultTab}`);
+        setActiveTab(config.defaultTab);
+      }
+    });
+  }, []);
+
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     setConfigLoader(loadConfig);
 
@@ -57,11 +67,11 @@ export default function TaskHome({nav}: Props) {
       const config = await loadConfig();
       if (!config.apiToken) {
         setError('No API token. Use the config button to set it up.');
-        setLoading(false);
+        if (!silent) setLoading(false);
         return;
       }
 
-      log('TaskHome', 'Fetching tasks and projects...');
+      log('TaskHome', `Fetching tasks and projects...${silent ? ' (silent refresh)' : ''}`);
       const [fetchedTasks, fetchedProjects] = await Promise.all([
         getTasks(),
         getProjects(),
@@ -77,7 +87,7 @@ export default function TaskHome({nav}: Props) {
       logError('TaskHome', err);
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -103,9 +113,10 @@ export default function TaskHome({nav}: Props) {
     nav.push('task-detail', {task, projects: projectList});
   };
 
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     log('TaskHome', 'ADD TASK pressed');
-    nav.push('task-add', {projects: projectList});
+    const config = await loadConfig();
+    nav.push('task-add', {projects: projectList, defaultProjectId: config.defaultProjectId});
   };
 
   const today = new Date().toISOString().slice(0, 10);
@@ -307,7 +318,7 @@ export default function TaskHome({nav}: Props) {
         <Text style={styles.footerText}>
           {taskCount} task{taskCount !== 1 ? 's' : ''}
         </Text>
-        <Pressable onPress={fetchData}>
+        <Pressable onPress={() => fetchData(true)}>
           <Text style={styles.footerRefresh}>Refresh</Text>
         </Pressable>
       </View>

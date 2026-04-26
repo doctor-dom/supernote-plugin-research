@@ -21,6 +21,8 @@ const DEFAULT_CONFIG = {
   defaultPriority: 1,
   enabledProjectIds: [],
   defaultTab: 'today',
+  postCreateAction: 'prompt', // 'prompt' (Add Another/Done) | 'auto-back'
+  defaultScreen: 'task-home', // 'task-home' | 'last-used'
 };
 
 // In-memory config (survives within a session, lost on plugin restart)

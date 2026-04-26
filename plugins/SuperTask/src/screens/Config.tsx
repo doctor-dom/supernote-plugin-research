@@ -1,5 +1,5 @@
 /**
- * Config screen - API token, project selection, default tab
+ * Config screen - API token, project selection, default tab, behavior settings
  */
 
 import React, {useState, useEffect} from 'react';
@@ -14,6 +14,7 @@ import {
 import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig, saveConfig} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
+import {log} from '../utils/debug';
 
 type Props = {
   onNavigate: (screen: string) => void;
@@ -25,37 +26,60 @@ const TAB_OPTIONS = [
   {key: 'projects', label: 'Projects'},
 ];
 
+const POST_CREATE_OPTIONS = [
+  {key: 'prompt', label: 'Ask (Add Another / Done)'},
+  {key: 'auto-back', label: 'Go back automatically'},
+];
+
+const DEFAULT_SCREEN_OPTIONS = [
+  {key: 'task-home', label: 'Task Home'},
+  {key: 'last-used', label: 'Last Used Screen'},
+];
+
 export default function Config({onNavigate}: Props) {
   const [token, setToken] = useState('');
+  const [tokenMasked, setTokenMasked] = useState(true);
   const [status, setStatus] = useState('');
   const [projects, setProjects] = useState<any[]>([]);
   const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
   const [defaultTab, setDefaultTab] = useState('today');
+  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
+  const [postCreateAction, setPostCreateAction] = useState('prompt');
+  const [defaultScreen, setDefaultScreen] = useState('task-home');
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
+    log('Config', 'MOUNT');
     loadConfig().then(config => {
-      if (config.apiToken) setToken(config.apiToken);
+      if (config.apiToken) {
+        setToken(config.apiToken);
+        // Auto-connect if we have a token from bundled config
+        handleConnect(config.apiToken);
+      }
       if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
       if (config.defaultTab) setDefaultTab(config.defaultTab);
+      if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
+      if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
+      if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
     });
   }, []);
 
-  const handleTestConnection = async () => {
-    if (!token.trim()) {
+  const handleConnect = async (tokenOverride?: string) => {
+    const t = (tokenOverride || token).trim();
+    if (!t) {
       setStatus('Enter an API token first');
       return;
     }
 
     setStatus('Testing...');
-    setConfigLoader(() => Promise.resolve({apiToken: token.trim()}));
+    setConfigLoader(() => Promise.resolve({apiToken: t}));
 
     try {
       const result = await testConnection();
       setStatus(`Connected! ${result.taskCount} tasks, ${result.projectCount} projects`);
       setConnected(true);
+      log('Config', `Connected: ${result.taskCount} tasks, ${result.projectCount} projects`);
 
-      // Fetch projects for the toggle list
       const fetchedProjects = await getProjects();
       setProjects(fetchedProjects || []);
     } catch (err: any) {
@@ -74,16 +98,20 @@ export default function Config({onNavigate}: Props) {
   };
 
   const handleSave = async () => {
+    log('Config', 'SAVE pressed');
     await saveConfig({
       apiToken: token.trim(),
       enabledProjectIds,
       defaultTab,
+      defaultProjectId,
+      postCreateAction,
+      defaultScreen,
     });
     setStatus('Settings saved (in memory)');
   };
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
         <Pressable style={styles.closeButton} onPress={() => PluginManager.closePluginView()}>
@@ -91,21 +119,31 @@ export default function Config({onNavigate}: Props) {
         </Pressable>
       </View>
 
+      {/* API Token */}
       <View style={styles.section}>
         <Text style={styles.label}>Todoist API Token</Text>
-        <TextInput
-          style={styles.input}
-          value={token}
-          onChangeText={setToken}
-          placeholder="Paste your API token"
-          secureTextEntry
-        />
+        <View style={styles.tokenRow}>
+          <TextInput
+            style={[styles.input, styles.tokenInput]}
+            value={token}
+            onChangeText={setToken}
+            placeholder="Paste your API token"
+            secureTextEntry={tokenMasked}
+          />
+          <Pressable style={styles.tokenToggle} onPress={() => setTokenMasked(!tokenMasked)}>
+            <Text style={styles.tokenToggleText}>{tokenMasked ? 'Show' : 'Hide'}</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.hint}>
+          Find your token at todoist.com/prefs/integrations
+        </Text>
       </View>
 
-      <Pressable style={styles.actionButton} onPress={handleTestConnection}>
+      <Pressable style={styles.actionButton} onPress={() => handleConnect()}>
         <Text style={styles.actionText}>Test Connection</Text>
       </Pressable>
 
+      {/* Project filters */}
       {connected && projects.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.label}>Show Projects</Text>
@@ -127,6 +165,36 @@ export default function Config({onNavigate}: Props) {
         </View>
       )}
 
+      {/* Default project for new tasks */}
+      {connected && projects.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Default Project for New Tasks</Text>
+          <Text style={styles.hint}>
+            Pre-selected when creating a task. Tap to toggle.
+          </Text>
+          <View style={styles.optionGrid}>
+            <Pressable
+              style={[styles.optionButton, !defaultProjectId && styles.optionButtonSelected]}
+              onPress={() => setDefaultProjectId(null)}>
+              <Text style={[styles.optionText, !defaultProjectId && styles.optionTextSelected]}>
+                None
+              </Text>
+            </Pressable>
+            {projects.map(p => (
+              <Pressable
+                key={p.id}
+                style={[styles.optionButton, defaultProjectId === p.id && styles.optionButtonSelected]}
+                onPress={() => setDefaultProjectId(p.id)}>
+                <Text style={[styles.optionText, defaultProjectId === p.id && styles.optionTextSelected]}>
+                  {p.name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Default tab */}
       {connected && (
         <View style={styles.section}>
           <Text style={styles.label}>Default Tab</Text>
@@ -145,6 +213,42 @@ export default function Config({onNavigate}: Props) {
               </Pressable>
             ))}
           </View>
+        </View>
+      )}
+
+      {/* Post-create behavior */}
+      {connected && (
+        <View style={styles.section}>
+          <Text style={styles.label}>After Creating a Task</Text>
+          {POST_CREATE_OPTIONS.map(opt => (
+            <Pressable
+              key={opt.key}
+              style={styles.radioRow}
+              onPress={() => setPostCreateAction(opt.key)}>
+              <Text style={styles.radioCheck}>
+                {postCreateAction === opt.key ? '(O)' : '(  )'}
+              </Text>
+              <Text style={styles.radioLabel}>{opt.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Default screen on open */}
+      {connected && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Open Plugin To</Text>
+          {DEFAULT_SCREEN_OPTIONS.map(opt => (
+            <Pressable
+              key={opt.key}
+              style={styles.radioRow}
+              onPress={() => setDefaultScreen(opt.key)}>
+              <Text style={styles.radioCheck}>
+                {defaultScreen === opt.key ? '(O)' : '(  )'}
+              </Text>
+              <Text style={styles.radioLabel}>{opt.label}</Text>
+            </Pressable>
+          ))}
         </View>
       )}
 
@@ -168,6 +272,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 24,
+    paddingBottom: 48,
   },
   header: {
     flexDirection: 'row',
@@ -213,6 +318,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000000',
   },
+  tokenRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  tokenInput: {
+    flex: 1,
+  },
+  tokenToggle: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: 4,
+    justifyContent: 'center',
+  },
+  tokenToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000000',
+  },
   actionButton: {
     paddingVertical: 14,
     borderWidth: 2,
@@ -243,6 +369,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000000',
   },
+  optionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  optionButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: 4,
+  },
+  optionButtonSelected: {
+    backgroundColor: '#000000',
+  },
+  optionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000000',
+  },
+  optionTextSelected: {
+    color: '#ffffff',
+  },
   tabOptions: {
     flexDirection: 'row',
     gap: 8,
@@ -265,6 +414,23 @@ const styles = StyleSheet.create({
   },
   tabOptionTextSelected: {
     color: '#ffffff',
+  },
+  radioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    gap: 12,
+  },
+  radioCheck: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+    fontFamily: 'monospace',
+  },
+  radioLabel: {
+    fontSize: 16,
+    color: '#000000',
   },
   statusBox: {
     padding: 16,
