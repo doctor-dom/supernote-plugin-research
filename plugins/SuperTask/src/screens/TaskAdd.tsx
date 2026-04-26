@@ -11,6 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
+import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -29,11 +30,14 @@ type Props = {
   nav: Nav;
   projects: any[];
   defaultProjectId?: string;
+  initialContent?: string;
+  initialDescription?: string;
+  captureMode?: 'lasso' | 'doc';
 };
 
-export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
-  const [content, setContent] = useState('');
-  const [description, setDescription] = useState('');
+export default function TaskAdd({nav, projects, defaultProjectId, initialContent, initialDescription, captureMode}: Props) {
+  const [content, setContent] = useState(initialContent || '');
+  const [description, setDescription] = useState(initialDescription || '');
   const [priority, setPriority] = useState(1);
   const [dueString, setDueString] = useState('');
   const [projectId, setProjectId] = useState<string | null>(defaultProjectId || null);
@@ -45,7 +49,7 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   const [postCreateAction, setPostCreateAction] = useState('prompt');
 
   useEffect(() => {
-    log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId}`);
+    log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId} captureMode=${captureMode || 'manual'} initialContent="${(initialContent || '').slice(0, 40)}"`);
     setConfigLoader(loadConfig);
     loadConfig().then(config => {
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
@@ -98,18 +102,31 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   };
 
   const handleDone = () => {
-    log('TaskAdd', 'DONE pressed');
-    nav.pop();
+    log('TaskAdd', `DONE pressed captureMode=${captureMode || 'manual'}`);
+    if (captureMode) {
+      PluginManager.closePluginView();
+    } else {
+      nav.pop();
+    }
   };
 
   return (
     <View style={styles.wrapper}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <Pressable onPress={() => { log('TaskAdd', 'BACK pressed'); nav.pop(); }}>
-          <Text style={styles.backText}>{'< Back'}</Text>
+        <Pressable onPress={() => {
+          log('TaskAdd', 'BACK pressed');
+          if (captureMode) {
+            PluginManager.closePluginView();
+          } else {
+            nav.pop();
+          }
+        }}>
+          <Text style={styles.backText}>{captureMode ? 'Close' : '< Back'}</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Add Task</Text>
+        <Text style={styles.headerTitle}>
+          {captureMode === 'lasso' ? 'Captured Task' : captureMode === 'doc' ? 'From Document' : 'Add Task'}
+        </Text>
         <Pressable onPress={() => { log('TaskAdd', 'LOG pressed'); nav.resetTo('debug'); }}>
           <Text style={styles.backText}>Log</Text>
         </Pressable>

@@ -139,13 +139,20 @@ function App(): React.JSX.Element {
         <TaskDetail nav={nav} task={current.params?.task} projects={current.params?.projects} />
       )}
       {current.name === 'task-add' && (
-        <TaskAdd nav={nav} projects={current.params?.projects} defaultProjectId={current.params?.defaultProjectId} />
+        <TaskAdd
+          nav={nav}
+          projects={current.params?.projects || []}
+          defaultProjectId={current.params?.defaultProjectId}
+          initialContent={current.params?.initialContent}
+          initialDescription={current.params?.initialDescription}
+          captureMode={current.params?.captureMode}
+        />
       )}
       {current.name === 'capture-lasso' && (
-        <Capture mode="lasso" onNavigate={(s: string) => resetTo(s)} />
+        <Capture mode="lasso" nav={nav} />
       )}
       {current.name === 'capture-doc' && (
-        <Capture mode="doc" onNavigate={(s: string) => resetTo(s)} />
+        <Capture mode="doc" nav={nav} />
       )}
       {current.name === 'config' && (
         <Config onNavigate={(s: string) => resetTo(s)} />
