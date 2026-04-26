@@ -8,16 +8,18 @@
 - [x] **Phase 1b: Config + connection** -- Todoist API v1 verified on-device, tasks loading (29 tasks)
 - [x] **Phase 1c: Dev tooling** -- HTTP dev log server, logs stream to Mac in real-time
 - [x] **Phase 2: Task viewer redesign** -- stack nav, tabbed home, project drill-down, task detail/add, date picker
-- [ ] **Phase 3: Post-action workflows + config** -- what happens after save/create/complete/delete, unified settings screen
+- [x] **Phase 3: Post-action workflows + config** -- Add Another/Done flow, silent refresh, expanded settings screen
+- [x] **Phase 5: Lasso capture** -- handwriting OCR via recognizeElements, pre-fills TaskAdd, confirmed on-device
 - [ ] **Phase 4: Subtasks** -- view/create/edit/complete subtasks via parent_id
-- [ ] **Phase 5: Lasso capture** -- handwriting OCR, confirmation UI, POST to Todoist
 - [ ] **Phase 6: Doc capture** -- PDF text selection, same flow as lasso
 - [ ] **Phase 7: Config persistence** -- save token/settings to plugin directory, on-device config UI
 - [ ] **Phase 8: Polish** -- loading states, error handling, empty states, no-network handling
 
 ## Current status
 
-**Phase 2 complete. Full task viewer UI working on device.** Stack navigation, tabbed home (Today/Upcoming/Projects), project drill-down, task detail editing, task creation, date picker calendar, all confirmed working. Todoist sync verified (edits appear in Todoist app).
+**Phase 5 complete. Lasso capture working on device.** Full flow: lasso handwriting -> OCR via recognizeElements -> pre-filled TaskAdd form -> POST to Todoist. Config screen expanded with all settings visible. Add Another/Done flow working after task creation.
+
+Phase 3 and 5 completed in Session 4. Phase 4 (subtasks) and Phase 6 (doc capture) are next.
 
 ### What to do next session
 
@@ -90,6 +92,21 @@ bash buildPlugin.sh
 ```
 
 ## Confirmed learnings
+
+### Lasso OCR (Session 4)
+- `PluginCommAPI.recognizeElements(elements, {width, height})` -- **size param is the note page size in pixels, required**
+- Without the size param, the call hangs forever (no error, no timeout)
+- `PluginFileAPI.getPageSize(notePath, page)` returns page dimensions
+- `PluginCommAPI.getLassoElements()` works from lasso toolbar context, returns element array
+- OCR quality is good for clear handwriting on Supernote
+- Full lasso -> OCR -> TaskAdd flow takes ~2-5 seconds on device
+
+### Config button routing (Session 4)
+- `PluginManager.registerConfigButtonListener({onClick: ...})` -- callback is `onClick`
+- Config button event fires BEFORE React component mounts
+- Must capture initial button ID in index.js (global) and read synchronously during useState init
+- Listeners in useEffect catch subsequent presses but miss the initial one
+- InkGames plugin is a good reference implementation for Supernote plugin patterns
 
 ### Todoist API v1 response format
 - **Response is paginated:** `{results: [...], next_cursor: "..."}` -- NOT a bare array
@@ -271,3 +288,41 @@ plugins/SuperTask/
 - Post-action workflows: save stays, create offers "Add Another" / "Done", complete/delete pop back
 - Unified settings screen: project filters, default project, default tab, post-action behavior, default screen, API key editing
 - Subtasks via parent_id: deferred to Phase 4
+
+### 2026-04-26 -- Session 4: Phase 3, config fixes, lasso capture working
+
+**Phase 3: Post-action workflows + config:**
+- TaskAdd: "Add Another" / "Done" overlay after task creation (replaces auto-pop). Keeps project and priority for rapid batch entry. Respects `postCreateAction` config setting.
+- TaskHome: silent refresh (skip spinner on manual refresh, just swap data) fixes e-ink non-redraw issue.
+- Config screen: expanded with default tab, post-create behavior, default screen, project filters, default project. Settings show immediately when token exists (not gated behind Test Connection). Auto-fetches projects on mount. Save button in header with floating "Saved!" overlay.
+- Config: `defaultProjectId`, `postCreateAction`, `defaultScreen` added to config schema.
+
+**Config button routing fix (major debugging session):**
+- Config button was never routing to Config screen. Root cause: two issues.
+  1. Wrong callback name: `onConfigButtonPress` should be `onClick` (discovered by studying InkGames plugin)
+  2. Race condition: listener in index.js set global, but React useEffect read it too late
+- Fix: global set in index.js (catches initial press before React mounts) + listeners registered in App.tsx useEffect (catches subsequent presses). Both `onClick` and `onConfigButtonPress` registered as belt-and-suspenders.
+- Button ID type coercion added (SDK may pass string or number).
+
+**Lasso capture (Phase 5) working end-to-end:**
+- `getLassoElements()` works, returns element array
+- `recognizeElements(elements, size)` requires TWO parameters -- the second is `{width, height}` of the note page in pixels. We were only passing elements, causing it to hang forever.
+- Page size fetched via `PluginFileAPI.getPageSize(notePath, page)` with A5X fallback (1404x1872)
+- Capture.tsx is now a thin OCR bridge: runs recognition, then navigates to TaskAdd with content pre-filled
+- On-screen trace log for debugging without dev server (since HTTP logs sometimes don't reach)
+- All SDK calls wrapped with timeouts (10-30s) so the screen can't hang forever
+
+**Key SDK learnings:**
+- `PluginManager.registerConfigButtonListener({onClick: ...})` -- callback is `onClick`, not `onConfigButtonPress`
+- `PluginCommAPI.recognizeElements(elements, {width, height})` -- second param is note page size in pixels, required
+- `PluginFileAPI.getPageSize(notePath, page)` -- returns page dimensions needed for OCR
+- Config button event fires BEFORE React mounts -- must capture via global in index.js
+- Listeners registered in useEffect need refs to avoid stale closures
+
+**What to do next session:**
+- Phase 4: Subtasks (parent_id support)
+- Phase 6: Doc capture (PDF text selection -- similar to lasso but no OCR needed)
+- Config persistence investigation (Phase 7)
+- Config screen redesign (noted as needed, functional but could be cleaner)
+- Remove on-screen trace from Capture once OCR is stable
+- Test Add Another / Done flow on device
