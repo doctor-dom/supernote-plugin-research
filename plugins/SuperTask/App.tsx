@@ -27,10 +27,12 @@ type ScreenEntry = {
 
 // Read the initial button ID set by index.js before React mounted
 function getInitialScreen(): ScreenEntry {
-  const buttonId = global.__superTaskButtonId;
+  const raw = global.__superTaskButtonId;
+  // Coerce to number for comparison -- SDK may pass string or number
+  const buttonId = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
   if (buttonId === 200) return {name: 'capture-lasso'};
   if (buttonId === 300) return {name: 'capture-doc'};
-  if (buttonId === 'config') return {name: 'config'};
+  if (raw === 'config') return {name: 'config'};
   return {name: 'task-home'};
 }
 
@@ -82,8 +84,9 @@ function App(): React.JSX.Element {
 
     const buttonSub = PluginManager.registerButtonListener({
       onButtonPress: (event: any) => {
-        const id = event?.id;
-        log('App', `BUTTON pressed id=${id} (listener)`);
+        const raw = event?.id;
+        const id = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
+        log('App', `BUTTON pressed raw=${JSON.stringify(raw)} id=${id} (listener)`);
         if (id === 200) {
           resetToRef.current?.('capture-lasso');
         } else if (id === 300) {
