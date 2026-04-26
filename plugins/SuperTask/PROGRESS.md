@@ -7,37 +7,69 @@
 - [x] **Phase 1a: Scaffold** -- plugin structure, button registration, screen routing, build verified
 - [x] **Phase 1b: Config + connection** -- Todoist API v1 verified on-device, tasks loading (29 tasks)
 - [x] **Phase 1c: Dev tooling** -- HTTP dev log server, logs stream to Mac in real-time
-- [ ] **Phase 2: Task viewer polish** -- complete/delete actions, manual add, pagination (cursor-based)
-- [ ] **Phase 3: Lasso capture** -- handwriting OCR, confirmation UI, POST to Todoist
-- [ ] **Phase 4: Doc capture** -- PDF text selection, same flow as lasso
-- [ ] **Phase 5: Config persistence** -- save token/settings to plugin directory, on-device config UI
-- [ ] **Phase 6: Polish** -- loading states, error handling, empty states, no-network handling
+- [x] **Phase 2: Task viewer redesign** -- stack nav, tabbed home, project drill-down, task detail/add, date picker
+- [ ] **Phase 3: Post-action workflows + config** -- what happens after save/create/complete/delete, unified settings screen
+- [ ] **Phase 4: Subtasks** -- view/create/edit/complete subtasks via parent_id
+- [ ] **Phase 5: Lasso capture** -- handwriting OCR, confirmation UI, POST to Todoist
+- [ ] **Phase 6: Doc capture** -- PDF text selection, same flow as lasso
+- [ ] **Phase 7: Config persistence** -- save token/settings to plugin directory, on-device config UI
+- [ ] **Phase 8: Polish** -- loading states, error handling, empty states, no-network handling
 
 ## Current status
 
-**Phase 1 complete. Task list loads 29 tasks from Todoist API v1.** Dev log server confirmed working -- logs POST from device to Mac over wifi.
+**Phase 2 complete. Full task viewer UI working on device.** Stack navigation, tabbed home (Today/Upcoming/Projects), project drill-down, task detail editing, task creation, date picker calendar, all confirmed working. Todoist sync verified (edits appear in Todoist app).
 
 ### What to do next session
 
-1. **Phase 2: Task viewer improvements**
-   - Test complete-task flow (tap checkbox to close a task)
-   - Handle pagination -- API returns `{results: [...], next_cursor: "..."}`, currently only first page
-   - Add pull-to-refresh or manual refresh
-   - Add manual "Add Task" button from the task list screen
-   - Test delete-task flow
+#### Phase 3: Post-action workflows + unified config
 
-2. **Phase 3: Lasso capture**
-   - Test Button 200 (lasso bar "Add Task") -- does `recognizeElements()` work?
-   - Build confirmation UI: show recognized text, let user edit, set priority/due/project
-   - POST to Todoist and confirm task appears
+**Post-action behaviors (confirmed design direction):**
 
-3. **Phase 4: Doc capture**
-   - Test Button 300 (toolbar "Add Task" in DOC mode)
-   - Test `getLastSelectedText()` / `getSelectedText()` for PDF text extraction
+After **saving edits**: stay on detail screen, show brief "Saved" overlay (already implemented). No pop-back.
 
-4. **Phase 5: Config persistence**
-   - Investigate which file I/O APIs actually work (see "Deferred: config persistence" below)
-   - Goal: save API token on-device so it survives reinstalls without rebuilding
+After **creating a task**: show "Task added!" overlay with two choices: **"Add Another"** (clears form) and **"Done"** (pops back to list). Currently just pops back after 500ms.
+
+After **completing a task**: pop back to list (task is gone from view). Keep as-is.
+
+After **deleting a task**: pop back to list. Keep as-is.
+
+**Configuration section expansion:**
+The existing Config.tsx is minimal (just API token + test connection). Expand into a full settings screen:
+- **API token** -- already exists, keep it
+- **Project filters** -- toggle which projects show in the task viewer (partially built, behind "Test Connection")
+- **Default project** -- which project new tasks go into by default
+- **Default tab** -- which tab (Today/Upcoming/Projects) the home screen opens on (partially built)
+- **Post-action behavior** -- configurable: after save (stay/go back), after create (prompt/auto-back/add another)
+- **Default screen** -- which screen the plugin opens to (home vs last project vs specific project)
+- **API key editing** -- ability to update the token without rebuilding
+
+All config is in-memory only for now (lost on plugin restart). Persistent config is deferred to Phase 7.
+
+#### Phase 4: Subtasks
+
+Todoist API v1 supports subtasks via `parent_id` field on tasks. No code exists yet. Needed:
+- `createTask` and `updateTask` already accept arbitrary fields -- just add `parentId` mapping
+- TaskDetail: show subtasks list below the form fields, with add/complete/delete
+- TaskHome: decide how to display subtasks (indented under parent? hidden until parent tapped?)
+
+#### Known issue: e-ink refresh on data reload
+
+**Symptom:** Tapping Refresh appears to do nothing. Data loads successfully (confirmed in logs: 30 tasks, 6 projects, all 200s) but the UI doesn't visibly update until a tab switch forces the e-ink to redraw.
+
+**Cause:** The list -> spinner -> list transition completes in ~1-2 seconds. E-ink partial refresh doesn't trigger properly for this pattern since the content looks identical before and after.
+
+**Fix ideas:**
+1. On manual refresh, skip the loading spinner entirely -- just silently swap the data. Avoids the visual no-op.
+2. Add a brief "Refreshing..." overlay (like the save overlay) that doesn't replace the list content.
+3. Force a visual flash/blank frame to trigger e-ink refresh (hacky, avoid if possible).
+
+Option 1 is cleanest.
+
+#### Other improvements to consider
+- Subtask support (Phase 4)
+- Lasso capture testing (Phase 5 -- untested since Phase 1, may need fixes)
+- Cache config loader result to avoid redundant loads per API call
+- Remove `autoFocus` from TaskAdd (may cause issues on e-ink keyboard)
 
 ### Dev workflow
 
@@ -61,9 +93,10 @@ bash buildPlugin.sh
 
 ### Todoist API v1 response format
 - **Response is paginated:** `{results: [...], next_cursor: "..."}` -- NOT a bare array
-- `getTasks()` and `getProjects()` unwrap this, checking for `results`, `items`, `tasks` keys
+- `getTasks()` and `getProjects()` now handle pagination with `fetchAllPages` loop
 - The REST v2 API (`/rest/v2`) returns 410 Gone as of April 2026
 - Base URL: `https://api.todoist.com/api/v1`
+- Subtasks supported via `parent_id` field on tasks (not yet implemented)
 
 ### fetch() works on Supernote
 - Confirmed by successful 200 responses from Todoist API
@@ -92,6 +125,13 @@ bash buildPlugin.sh
 - `dev-server.js` is a zero-dependency Node server that prints logs to terminal and saves to `logs/`
 - Button in debug screen: "Upload Log" POSTs all entries
 - Falls back to `insertText` on current note page if server unreachable
+
+### E-ink UI learnings (Session 3)
+- **Horizontal ScrollView swallows taps** -- ProjectPicker was unresponsive until replaced with flexWrap View
+- **Side effects in render body cause infinite loops** -- `log()` during render triggers listener -> setState -> re-render -> log(). Must use useEffect.
+- **E-ink doesn't refresh on identical-looking content swaps** -- list -> spinner -> list (same data) shows no visible change. Tab switch forces redraw.
+- **`keyboardShouldPersistTaps="handled"` needed on ScrollViews** -- otherwise taps near TextInputs get swallowed on Android
+- **Position-absolute overlays work well for status messages** -- no layout shift, doesn't push form content around
 
 ### Plugin scaffolding
 - Always scaffold from `template/`, never copy another plugin
@@ -134,21 +174,31 @@ The SDK has no `writeFile()`. Investigated approaches that failed:
 ```
 plugins/SuperTask/
   index.js              -- entry point, button registration, global routing
-  App.tsx               -- root component, screen router, error boundary, debug viewer
+  App.tsx               -- root component, stack navigation, debug viewer
   config.local.js       -- API token + debugServerUrl (gitignored, bundled at build time)
   dev-server.js         -- local Node server for receiving debug logs over wifi
   PluginConfig.json     -- plugin metadata (supertask001, v0.1.0)
   package.json          -- deps: RN 0.79.2, sn-plugin-lib ^0.1.19
   PROGRESS.md           -- this file
   src/
-    api/todoist.js      -- Todoist API v1 client, response unwrapping, debug logging
+    api/todoist.js      -- Todoist API v1 client, pagination, response unwrapping
     utils/
-      config.js         -- config loader (bundled token, persistence deferred)
+      config.js         -- config loader (bundled token, in-memory runtime config)
       debug.js          -- debug logger with HTTP export to dev server
+    components/
+      TaskRow.tsx        -- reusable task row (checkbox + content + priority + due)
+      TabBar.tsx         -- horizontal tab strip
+      SectionHeader.tsx  -- group divider with title + count + optional arrow
+      PriorityPicker.tsx -- P1-P4 toggle buttons
+      ProjectPicker.tsx  -- project toggle buttons (flexWrap, not horizontal scroll)
+      DatePicker.tsx     -- month-grid calendar for e-ink
     screens/
-      TaskList.tsx      -- task list viewer with sort-by-due, complete action, Log/Refresh/Close
-      Capture.tsx       -- lasso OCR or DOC text capture, priority/due/project, submit
-      Config.tsx        -- settings UI (API token entry, test connection)
+      TaskHome.tsx       -- tabbed home (Today / Upcoming / Projects)
+      ProjectView.tsx    -- single project drill-down (Overdue/Today/Upcoming/No Date)
+      TaskDetail.tsx     -- edit/complete/delete task, date picker, floating overlay
+      TaskAdd.tsx        -- create new task, date picker, add-another flow (pending)
+      Capture.tsx        -- lasso OCR or DOC text capture, submit to Todoist
+      Config.tsx         -- settings UI (API token, project toggles, default tab)
   android/              -- standard RN android scaffold (com.supertask)
   ios/                  -- standard RN ios scaffold
   logs/                 -- received debug logs from device (gitignored)
@@ -179,25 +229,45 @@ plugins/SuperTask/
 
 **Todoist API v1 response parsing:**
 - API returns `{results: [...], next_cursor: "..."}`, not a bare array
-- `getTasks()` and `getProjects()` now unwrap the response, checking `results`/`items`/`tasks` keys
-- Added safety check in TaskList.tsx before calling `.sort()` on result
+- `getTasks()` and `getProjects()` now unwrap the response
 - **Task list now loads 29 tasks successfully**
 
-**Log export attempts (what failed):**
-- `PluginNoteAPI.getCurrentFilePath()` -- doesn't exist (it's on PluginCommAPI)
-- `PluginFileAPI.createNote()` with system templates -- error 802 "template file doesn't exist"
-- dpaste.org -- service is down
-- ix.io -- service is down
+**Dev log server working:**
+- `dev-server.js` zero-dependency Node HTTP server, logs to terminal + files
+- Confirmed on-device via fetch() POST
 
-**Dev log server (what works):**
-- Created `dev-server.js` -- zero-dependency Node HTTP server
-- Plugin POSTs logs via `fetch()` to `http://<mac-ip>:3000/log`
-- Server URL configured in `config.local.js` as `debugServerUrl`
-- Logs print to terminal and save to `logs/` directory
-- Confirmed working: first log received shows full API call trace
+### 2026-04-26 -- Session 3: UI redesign, on-device testing
 
-**ADB investigation:**
-- Supernote has ADB locked down -- `adb devices` sees it, but `shell`, `logcat`, `push`, `pull` all fail
-- Not viable for deployment or debugging
+**Full task viewer redesign (Phase 2):**
+- Stack-based navigation in App.tsx (push/pop/resetTo)
+- TaskHome: tabbed view (Today/Upcoming/Projects) with grouped task lists
+- ProjectView: single project drill-down with Overdue/Today/Upcoming/No Date sections
+- TaskDetail: edit/complete/delete with floating status overlay, stays on screen after save
+- TaskAdd: create task form with Log button for debugging
+- 5 shared components: TaskRow, TabBar, SectionHeader, PriorityPicker, ProjectPicker
+- DatePicker: month-grid calendar for e-ink, wired into TaskDetail and TaskAdd
 
-**CLAUDE.md updated** with all learnings (SDK method locations, file I/O limitations, API format)
+**API enhancements:**
+- Cursor-based pagination via fetchAllPages loop
+- getTasksByProject(projectId)
+- unwrapResult helper (deduplicates response unwrapping)
+- updateTask with proper field mapping (dueString -> due_string, projectId -> project_id)
+
+**On-device testing results:**
+- Task list loads 30 tasks, 6 projects (confirmed via logs)
+- Editing a task and saving works -- changes appear in Todoist app
+- Tab switching works (Today/Upcoming/Projects)
+- Project drill-down works
+- Horizontal ScrollView in ProjectPicker swallowed taps -- fixed with flexWrap View
+- log() in render body caused infinite loop crash -- fixed with useEffect
+- E-ink doesn't visually refresh on Refresh tap (data loads fine, display doesn't redraw)
+
+**Bugs found and fixed:**
+1. Crash on launch: log() in App render body -> infinite re-render via listener setState
+2. ProjectPicker taps not registering: horizontal ScrollView -> flexWrap View
+3. TaskDetail kicked back after save: removed nav.pop(), now stays with "Saved" overlay
+
+**Design decisions for Phase 3:**
+- Post-action workflows: save stays, create offers "Add Another" / "Done", complete/delete pop back
+- Unified settings screen: project filters, default project, default tab, post-action behavior, default screen, API key editing
+- Subtasks via parent_id: deferred to Phase 4
