@@ -13,7 +13,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginCommAPI, PluginDocAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI, PluginFileAPI, PluginDocAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -119,10 +119,51 @@ export default function Capture({mode, nav}: Props) {
         return null;
       }
 
-      addTrace(`recognizeElements: ${elements.result.length} elements...`);
+      // Get page context (needed for recognizeElements size param)
+      addTrace('Getting file path and page number...');
+      let filePath = '';
+      let pageNum = 0;
+      try {
+        const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
+        filePath = fp?.result || '';
+        addTrace(`filePath: ${filePath}`);
+      } catch (e: any) {
+        addTrace(`getCurrentFilePath failed: ${e.message}`);
+      }
+      try {
+        const pn = await withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum');
+        pageNum = pn?.result ?? 0;
+        addTrace(`pageNum: ${pageNum}`);
+      } catch (e: any) {
+        addTrace(`getCurrentPageNum failed: ${e.message}`);
+      }
+
+      // Get page size -- required by recognizeElements
+      let pageSize = {width: 1404, height: 1872}; // A5X default fallback
+      if (filePath) {
+        try {
+          addTrace(`getPageSize(${filePath}, ${pageNum})...`);
+          const ps = await withTimeout(
+            PluginFileAPI.getPageSize(filePath, pageNum),
+            5000,
+            'getPageSize',
+          );
+          addTrace(`getPageSize result: ${JSON.stringify(ps)}`);
+          if (ps?.result) {
+            pageSize = ps.result;
+          } else if (ps?.width && ps?.height) {
+            pageSize = ps;
+          }
+        } catch (e: any) {
+          addTrace(`getPageSize failed, using default: ${e.message}`);
+        }
+      }
+      addTrace(`Using page size: ${pageSize.width}x${pageSize.height}`);
+
+      addTrace(`recognizeElements: ${elements.result.length} elements, size=${pageSize.width}x${pageSize.height}...`);
       const recognized = await withTimeout(
-        PluginCommAPI.recognizeElements(elements.result),
-        15000,
+        PluginCommAPI.recognizeElements(elements.result, pageSize),
+        30000,
         'recognizeElements',
       );
       addTrace(`recognizeElements: success=${recognized?.success} text="${(recognized?.result || '').slice(0, 60)}"`);
@@ -135,24 +176,9 @@ export default function Capture({mode, nav}: Props) {
 
       const content = recognized.result.trim();
 
-      // Get source context
-      addTrace('Getting source context...');
-      let fileName = 'note';
-      let page: string | number = '?';
-      try {
-        const filePath = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
-        fileName = filePath?.result?.split('/').pop()?.replace('.note', '') || 'note';
-      } catch (e: any) {
-        addTrace(`getCurrentFilePath failed: ${e.message}`);
-      }
-      try {
-        const pageNum = await withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum');
-        page = pageNum?.result ?? '?';
-      } catch (e: any) {
-        addTrace(`getCurrentPageNum failed: ${e.message}`);
-      }
-
-      const description = `From: ${fileName} p.${page}`;
+      // Build source context from filePath/pageNum we already fetched
+      const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
+      const description = `From: ${fileName} p.${pageNum}`;
       addTrace(`Done: "${content.slice(0, 40)}" -- ${description}`);
       return {content, description};
     } catch (err: any) {

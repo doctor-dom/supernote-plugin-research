@@ -1,5 +1,8 @@
 /**
  * Config screen - API token, project selection, default tab, behavior settings
+ *
+ * Settings are always visible if a token exists. Project-dependent sections
+ * (project filters, default project) show after projects are fetched.
  */
 
 import React, {useState, useEffect} from 'react';
@@ -40,29 +43,42 @@ export default function Config({onNavigate}: Props) {
   const [token, setToken] = useState('');
   const [tokenMasked, setTokenMasked] = useState(true);
   const [status, setStatus] = useState('');
+  const [saveStatus, setSaveStatus] = useState('');
   const [projects, setProjects] = useState<any[]>([]);
   const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
   const [defaultTab, setDefaultTab] = useState('today');
   const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
   const [postCreateAction, setPostCreateAction] = useState('prompt');
   const [defaultScreen, setDefaultScreen] = useState('task-home');
-  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
-    loadConfig().then(config => {
-      log('Config', `Config loaded: hasToken=${!!config.apiToken} defaultTab=${config.defaultTab} defaultProjectId=${config.defaultProjectId}`);
+    loadConfig().then(async config => {
+      log('Config', `Config loaded: hasToken=${!!config.apiToken} defaultTab=${config.defaultTab}`);
       if (config.apiToken) setToken(config.apiToken);
       if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
       if (config.defaultTab) setDefaultTab(config.defaultTab);
       if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
+
+      // Auto-fetch projects if we have a token (lightweight, no test connection)
+      if (config.apiToken) {
+        try {
+          setConfigLoader(() => Promise.resolve({apiToken: config.apiToken}));
+          log('Config', 'Auto-fetching projects...');
+          const fetched = await getProjects();
+          setProjects(fetched || []);
+          log('Config', `Auto-fetched ${fetched?.length ?? 0} projects`);
+        } catch (err: any) {
+          log('Config', `Auto-fetch projects failed: ${err.message}`);
+        }
+      }
     });
   }, []);
 
-  const handleConnect = async (tokenOverride?: string) => {
-    const t = (tokenOverride || token).trim();
+  const handleTestConnection = async () => {
+    const t = token.trim();
     if (!t) {
       setStatus('Enter an API token first');
       return;
@@ -74,14 +90,12 @@ export default function Config({onNavigate}: Props) {
     try {
       const result = await testConnection();
       setStatus(`Connected! ${result.taskCount} tasks, ${result.projectCount} projects`);
-      setConnected(true);
       log('Config', `Connected: ${result.taskCount} tasks, ${result.projectCount} projects`);
 
       const fetchedProjects = await getProjects();
       setProjects(fetchedProjects || []);
     } catch (err: any) {
       setStatus(`Error: ${err.message}`);
-      setConnected(false);
     }
   };
 
@@ -104,16 +118,26 @@ export default function Config({onNavigate}: Props) {
       postCreateAction,
       defaultScreen,
     });
-    setStatus('Settings saved (in memory)');
+    setSaveStatus('Saved!');
+    setTimeout(() => setSaveStatus(''), 2000);
   };
 
+  // Show settings sections if we have a token (don't gate behind connection test)
+  const hasToken = token.trim().length > 0;
+
   return (
+    <View style={styles.wrapper}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
-        <Pressable style={styles.closeButton} onPress={() => PluginManager.closePluginView()}>
-          <Text style={styles.closeText}>Close</Text>
-        </Pressable>
+        <View style={styles.headerButtons}>
+          <Pressable style={styles.headerBtn} onPress={handleSave}>
+            <Text style={styles.headerBtnText}>Save</Text>
+          </Pressable>
+          <Pressable style={styles.headerBtn} onPress={() => PluginManager.closePluginView()}>
+            <Text style={styles.headerBtnText}>Close</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* API Token */}
@@ -136,12 +160,76 @@ export default function Config({onNavigate}: Props) {
         </Text>
       </View>
 
-      <Pressable style={styles.actionButton} onPress={() => handleConnect()}>
+      <Pressable style={styles.actionButton} onPress={handleTestConnection}>
         <Text style={styles.actionText}>Test Connection</Text>
       </Pressable>
 
-      {/* Project filters */}
-      {connected && projects.length > 0 && (
+      {status ? (
+        <View style={styles.statusBox}>
+          <Text style={styles.statusText}>{status}</Text>
+        </View>
+      ) : null}
+
+      {/* Default tab -- always show if token exists */}
+      {hasToken && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Default Tab</Text>
+          <View style={styles.tabOptions}>
+            {TAB_OPTIONS.map(opt => (
+              <Pressable
+                key={opt.key}
+                style={[styles.tabOption, defaultTab === opt.key && styles.tabOptionSelected]}
+                onPress={() => setDefaultTab(opt.key)}>
+                <Text style={[
+                  styles.tabOptionText,
+                  defaultTab === opt.key && styles.tabOptionTextSelected,
+                ]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Post-create behavior -- always show if token exists */}
+      {hasToken && (
+        <View style={styles.section}>
+          <Text style={styles.label}>After Creating a Task</Text>
+          {POST_CREATE_OPTIONS.map(opt => (
+            <Pressable
+              key={opt.key}
+              style={styles.radioRow}
+              onPress={() => setPostCreateAction(opt.key)}>
+              <Text style={styles.radioCheck}>
+                {postCreateAction === opt.key ? '(O)' : '(  )'}
+              </Text>
+              <Text style={styles.radioLabel}>{opt.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Default screen on open -- always show if token exists */}
+      {hasToken && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Open Plugin To</Text>
+          {DEFAULT_SCREEN_OPTIONS.map(opt => (
+            <Pressable
+              key={opt.key}
+              style={styles.radioRow}
+              onPress={() => setDefaultScreen(opt.key)}>
+              <Text style={styles.radioCheck}>
+                {defaultScreen === opt.key ? '(O)' : '(  )'}
+              </Text>
+              <Text style={styles.radioLabel}>{opt.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Project filters -- need projects fetched */}
+      {projects.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.label}>Show Projects</Text>
           <Text style={styles.hint}>
@@ -162,8 +250,8 @@ export default function Config({onNavigate}: Props) {
         </View>
       )}
 
-      {/* Default project for new tasks */}
-      {connected && projects.length > 0 && (
+      {/* Default project -- need projects fetched */}
+      {projects.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.label}>Default Project for New Tasks</Text>
           <Text style={styles.hint}>
@@ -190,82 +278,25 @@ export default function Config({onNavigate}: Props) {
           </View>
         </View>
       )}
-
-      {/* Default tab */}
-      {connected && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Default Tab</Text>
-          <View style={styles.tabOptions}>
-            {TAB_OPTIONS.map(opt => (
-              <Pressable
-                key={opt.key}
-                style={[styles.tabOption, defaultTab === opt.key && styles.tabOptionSelected]}
-                onPress={() => setDefaultTab(opt.key)}>
-                <Text style={[
-                  styles.tabOptionText,
-                  defaultTab === opt.key && styles.tabOptionTextSelected,
-                ]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* Post-create behavior */}
-      {connected && (
-        <View style={styles.section}>
-          <Text style={styles.label}>After Creating a Task</Text>
-          {POST_CREATE_OPTIONS.map(opt => (
-            <Pressable
-              key={opt.key}
-              style={styles.radioRow}
-              onPress={() => setPostCreateAction(opt.key)}>
-              <Text style={styles.radioCheck}>
-                {postCreateAction === opt.key ? '(O)' : '(  )'}
-              </Text>
-              <Text style={styles.radioLabel}>{opt.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {/* Default screen on open */}
-      {connected && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Open Plugin To</Text>
-          {DEFAULT_SCREEN_OPTIONS.map(opt => (
-            <Pressable
-              key={opt.key}
-              style={styles.radioRow}
-              onPress={() => setDefaultScreen(opt.key)}>
-              <Text style={styles.radioCheck}>
-                {defaultScreen === opt.key ? '(O)' : '(  )'}
-              </Text>
-              <Text style={styles.radioLabel}>{opt.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      <Pressable style={styles.actionButton} onPress={handleSave}>
-        <Text style={styles.actionText}>Save Settings</Text>
-      </Pressable>
-
-      {status ? (
-        <View style={styles.statusBox}>
-          <Text style={styles.statusText}>{status}</Text>
-        </View>
-      ) : null}
     </ScrollView>
+
+    {/* Floating save confirmation overlay */}
+    {saveStatus ? (
+      <View style={styles.overlay}>
+        <Text style={styles.overlayText}>{saveStatus}</Text>
+      </View>
+    ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
+  wrapper: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
     padding: 24,
@@ -282,15 +313,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#000000',
   },
-  closeButton: {
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: '#000000',
     borderRadius: 4,
   },
-  closeText: {
+  headerBtnText: {
     fontSize: 16,
+    fontWeight: '600',
     color: '#000000',
   },
   section: {
@@ -347,6 +383,18 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 16,
     fontWeight: '700',
+    color: '#000000',
+  },
+  statusBox: {
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: 4,
+    backgroundColor: '#f5f5f5',
+    marginBottom: 20,
+  },
+  statusText: {
+    fontSize: 14,
     color: '#000000',
   },
   projectRow: {
@@ -429,15 +477,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000000',
   },
-  statusBox: {
-    padding: 16,
-    borderWidth: 1,
+  overlay: {
+    position: 'absolute',
+    bottom: 24,
+    left: 24,
+    right: 24,
+    padding: 14,
+    borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
   },
-  statusText: {
-    fontSize: 14,
+  overlayText: {
+    fontSize: 16,
+    fontWeight: '700',
     color: '#000000',
   },
 });
