@@ -1,25 +1,31 @@
 /**
  * SuperTask - Root component
  *
- * Routes to the correct screen based on which button was tapped.
- * Includes error boundary and debug log viewer for on-device diagnostics.
+ * Stack-based navigation for drill-down flows.
+ * Capture/config/debug screens stay outside the stack.
  *
  * @format
  */
 
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {View, Text, ScrollView, Pressable, StyleSheet} from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
 
-import TaskList from './src/screens/TaskList';
+import TaskHome from './src/screens/TaskHome';
+import ProjectView from './src/screens/ProjectView';
+import TaskDetail from './src/screens/TaskDetail';
+import TaskAdd from './src/screens/TaskAdd';
 import Capture from './src/screens/Capture';
 import Config from './src/screens/Config';
 import {log, logError, getEntries, setListener, exportLog} from './src/utils/debug';
 
-type Screen = 'tasks' | 'capture-lasso' | 'capture-doc' | 'config' | 'debug';
+type ScreenEntry = {
+  name: string;
+  params?: Record<string, any>;
+};
 
 function App(): React.JSX.Element {
-  const [screen, setScreen] = useState<Screen>('tasks');
+  const [screenStack, setScreenStack] = useState<ScreenEntry[]>([{name: 'task-home'}]);
   const [error, setError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [exportStatus, setExportStatus] = useState('');
@@ -32,13 +38,13 @@ function App(): React.JSX.Element {
       log('App', `Button ID: ${JSON.stringify(buttonId)}`);
 
       if (buttonId === 200) {
-        setScreen('capture-lasso');
+        setScreenStack([{name: 'capture-lasso'}]);
       } else if (buttonId === 300) {
-        setScreen('capture-doc');
+        setScreenStack([{name: 'capture-doc'}]);
       } else if (buttonId === 'config') {
-        setScreen('config');
+        setScreenStack([{name: 'config'}]);
       } else {
-        setScreen('tasks');
+        setScreenStack([{name: 'task-home'}]);
       }
     } catch (err) {
       logError('App', err);
@@ -46,13 +52,29 @@ function App(): React.JSX.Element {
     }
   }, []);
 
-  const handleNavigate = (s: string) => {
-    log('App', `Navigate to: ${s}`);
-    setScreen(s as Screen);
-  };
+  const push = useCallback((name: string, params?: Record<string, any>) => {
+    log('App', `push: ${name} ${params ? JSON.stringify(params) : ''}`);
+    setScreenStack(prev => [...prev, {name, params}]);
+  }, []);
+
+  const pop = useCallback(() => {
+    setScreenStack(prev => {
+      if (prev.length <= 1) return prev;
+      log('App', `pop: back to ${prev[prev.length - 2].name}`);
+      return prev.slice(0, -1);
+    });
+  }, []);
+
+  const resetTo = useCallback((name: string, params?: Record<string, any>) => {
+    log('App', `resetTo: ${name}`);
+    setScreenStack([{name, params}]);
+  }, []);
+
+  const current = screenStack[screenStack.length - 1];
+  const canGoBack = screenStack.length > 1;
 
   // Show debug log on error or when navigated to
-  if (error || screen === 'debug') {
+  if (error || current.name === 'debug') {
     return (
       <View style={styles.container}>
         <View style={styles.debugHeader}>
@@ -71,7 +93,7 @@ function App(): React.JSX.Element {
             </Pressable>
             <Pressable
               style={styles.debugButton}
-              onPress={() => { setError(null); setScreen('tasks'); }}>
+              onPress={() => { setError(null); resetTo('task-home'); }}>
               <Text style={styles.debugButtonText}>Tasks</Text>
             </Pressable>
             <Pressable
@@ -99,12 +121,31 @@ function App(): React.JSX.Element {
     );
   }
 
+  const nav = {push, pop, resetTo, canGoBack};
+
   return (
     <View style={styles.container}>
-      {screen === 'tasks' && <TaskList onNavigate={handleNavigate} />}
-      {screen === 'capture-lasso' && <Capture mode="lasso" onNavigate={handleNavigate} />}
-      {screen === 'capture-doc' && <Capture mode="doc" onNavigate={handleNavigate} />}
-      {screen === 'config' && <Config onNavigate={handleNavigate} />}
+      {current.name === 'task-home' && (
+        <TaskHome nav={nav} />
+      )}
+      {current.name === 'project-view' && (
+        <ProjectView nav={nav} projectId={current.params?.projectId} projectName={current.params?.projectName} />
+      )}
+      {current.name === 'task-detail' && (
+        <TaskDetail nav={nav} task={current.params?.task} projects={current.params?.projects} />
+      )}
+      {current.name === 'task-add' && (
+        <TaskAdd nav={nav} projects={current.params?.projects} defaultProjectId={current.params?.defaultProjectId} />
+      )}
+      {current.name === 'capture-lasso' && (
+        <Capture mode="lasso" onNavigate={(s: string) => resetTo(s)} />
+      )}
+      {current.name === 'capture-doc' && (
+        <Capture mode="doc" onNavigate={(s: string) => resetTo(s)} />
+      )}
+      {current.name === 'config' && (
+        <Config onNavigate={(s: string) => resetTo(s)} />
+      )}
     </View>
   );
 }

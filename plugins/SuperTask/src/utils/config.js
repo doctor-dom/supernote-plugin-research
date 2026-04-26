@@ -19,13 +19,23 @@ const DEFAULT_CONFIG = {
   apiToken: '',
   defaultProjectId: null,
   defaultPriority: 1,
+  enabledProjectIds: [],
+  defaultTab: 'today',
 };
 
+// In-memory config (survives within a session, lost on plugin restart)
+let _runtimeConfig = null;
+
 export async function loadConfig() {
+  if (_runtimeConfig) {
+    return {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};
+  }
   return {...DEFAULT_CONFIG, ...bundledConfig};
 }
 
 export async function saveConfig(config) {
+  // Save to runtime memory (persists within this plugin session)
+  _runtimeConfig = {..._runtimeConfig, ...config};
   // TODO: persist to plugin directory once we confirm the write API
 }
 

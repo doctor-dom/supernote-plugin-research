@@ -1,5 +1,5 @@
 /**
- * Config screen - API token entry and connection test
+ * Config screen - API token, project selection, default tab
  */
 
 import React, {useState, useEffect} from 'react';
@@ -14,69 +14,79 @@ import {
 import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig, saveConfig} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
-import {saveProjectCache} from '../utils/config';
 
 type Props = {
   onNavigate: (screen: string) => void;
 };
 
+const TAB_OPTIONS = [
+  {key: 'today', label: 'Today'},
+  {key: 'upcoming', label: 'Upcoming'},
+  {key: 'projects', label: 'Projects'},
+];
+
 export default function Config({onNavigate}: Props) {
   const [token, setToken] = useState('');
   const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
+  const [defaultTab, setDefaultTab] = useState('today');
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     loadConfig().then(config => {
-      if (config.apiToken) {
-        setToken(config.apiToken);
-      }
+      if (config.apiToken) setToken(config.apiToken);
+      if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
+      if (config.defaultTab) setDefaultTab(config.defaultTab);
     });
   }, []);
 
   const handleTestConnection = async () => {
     if (!token.trim()) {
-      setStatus('Please enter an API token');
+      setStatus('Enter an API token first');
       return;
     }
 
-    setLoading(true);
-    setStatus('Testing connection...');
-
-    // Temporarily set the token for testing
-    setConfigLoader(async () => ({apiToken: token.trim()}));
+    setStatus('Testing...');
+    setConfigLoader(() => Promise.resolve({apiToken: token.trim()}));
 
     try {
       const result = await testConnection();
-      setStatus(`Connected. ${result.taskCount} active tasks, ${result.projectCount} projects.`);
+      setStatus(`Connected! ${result.taskCount} tasks, ${result.projectCount} projects`);
+      setConnected(true);
 
-      // Cache projects on successful connection
-      const projects = await getProjects();
-      await saveProjectCache(projects);
-    } catch (err) {
+      // Fetch projects for the toggle list
+      const fetchedProjects = await getProjects();
+      setProjects(fetchedProjects || []);
+    } catch (err: any) {
       setStatus(`Error: ${err.message}`);
-    } finally {
-      setLoading(false);
+      setConnected(false);
     }
+  };
+
+  const toggleProject = (projectId: string) => {
+    setEnabledProjectIds(prev => {
+      if (prev.includes(projectId)) {
+        return prev.filter(id => id !== projectId);
+      }
+      return [...prev, projectId];
+    });
   };
 
   const handleSave = async () => {
     await saveConfig({
       apiToken: token.trim(),
-      defaultProjectId: null,
-      defaultPriority: 1,
+      enabledProjectIds,
+      defaultTab,
     });
-    setStatus('Settings saved.');
-  };
-
-  const handleClose = () => {
-    PluginManager.closePluginView();
+    setStatus('Settings saved (in memory)');
   };
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text style={styles.title}>SuperTask Settings</Text>
-        <Pressable style={styles.closeButton} onPress={handleClose}>
+        <Text style={styles.title}>Settings</Text>
+        <Pressable style={styles.closeButton} onPress={() => PluginManager.closePluginView()}>
           <Text style={styles.closeText}>Close</Text>
         </Pressable>
       </View>
@@ -87,28 +97,60 @@ export default function Config({onNavigate}: Props) {
           style={styles.input}
           value={token}
           onChangeText={setToken}
-          placeholder="Paste your API token here"
+          placeholder="Paste your API token"
           secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
         />
-        <Text style={styles.hint}>
-          Find your token at todoist.com/prefs/integrations
-        </Text>
       </View>
 
-      <View style={styles.buttonRow}>
-        <Pressable
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleTestConnection}
-          disabled={loading}>
-          <Text style={styles.buttonText}>Test Connection</Text>
-        </Pressable>
+      <Pressable style={styles.actionButton} onPress={handleTestConnection}>
+        <Text style={styles.actionText}>Test Connection</Text>
+      </Pressable>
 
-        <Pressable style={styles.button} onPress={handleSave}>
-          <Text style={styles.buttonText}>Save Settings</Text>
-        </Pressable>
-      </View>
+      {connected && projects.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Show Projects</Text>
+          <Text style={styles.hint}>
+            Select which projects to show. None selected = show all.
+          </Text>
+          {projects.map(p => {
+            const enabled = enabledProjectIds.includes(p.id);
+            return (
+              <Pressable
+                key={p.id}
+                style={styles.projectRow}
+                onPress={() => toggleProject(p.id)}>
+                <Text style={styles.projectCheck}>{enabled ? '[X]' : '[  ]'}</Text>
+                <Text style={styles.projectName}>{p.name}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {connected && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Default Tab</Text>
+          <View style={styles.tabOptions}>
+            {TAB_OPTIONS.map(opt => (
+              <Pressable
+                key={opt.key}
+                style={[styles.tabOption, defaultTab === opt.key && styles.tabOptionSelected]}
+                onPress={() => setDefaultTab(opt.key)}>
+                <Text style={[
+                  styles.tabOptionText,
+                  defaultTab === opt.key && styles.tabOptionTextSelected,
+                ]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+
+      <Pressable style={styles.actionButton} onPress={handleSave}>
+        <Text style={styles.actionText}>Save Settings</Text>
+      </Pressable>
 
       {status ? (
         <View style={styles.statusBox}>
@@ -131,7 +173,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   title: {
     fontSize: 22,
@@ -158,6 +200,11 @@ const styles = StyleSheet.create({
     color: '#000000',
     marginBottom: 8,
   },
+  hint: {
+    fontSize: 13,
+    color: '#666666',
+    marginBottom: 12,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#000000',
@@ -166,31 +213,58 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000000',
   },
-  hint: {
-    fontSize: 13,
-    color: '#666666',
-    marginTop: 6,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
-  },
-  button: {
-    flex: 1,
+  actionButton: {
     paddingVertical: 14,
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     alignItems: 'center',
+    marginBottom: 20,
   },
-  buttonDisabled: {
-    borderColor: '#999999',
-  },
-  buttonText: {
+  actionText: {
     fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  projectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    gap: 12,
+  },
+  projectCheck: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+    fontFamily: 'monospace',
+  },
+  projectName: {
+    fontSize: 16,
+    color: '#000000',
+  },
+  tabOptions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  tabOption: {
+    flex: 1,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  tabOptionSelected: {
+    backgroundColor: '#000000',
+  },
+  tabOptionText: {
+    fontSize: 14,
     fontWeight: '600',
     color: '#000000',
+  },
+  tabOptionTextSelected: {
+    color: '#ffffff',
   },
   statusBox: {
     padding: 16,

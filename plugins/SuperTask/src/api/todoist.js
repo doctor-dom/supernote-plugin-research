@@ -50,30 +50,64 @@ async function todoistFetch(path, options = {}) {
   return response.json();
 }
 
-export async function getTasks(filter) {
-  const params = filter ? `?filter=${encodeURIComponent(filter)}` : '';
-  const result = await todoistFetch(`/tasks${params}`);
-  log('API', `getTasks raw type: ${typeof result}, isArray: ${Array.isArray(result)}`);
+/**
+ * Extract array from paginated API response.
+ * v1 API returns {results: [...], next_cursor: "..."} or bare arrays.
+ */
+function unwrapResult(result) {
   if (Array.isArray(result)) return result;
-  // v1 API may wrap tasks in an object
   if (result && typeof result === 'object') {
-    log('API', `getTasks keys: ${Object.keys(result).join(', ')}`);
     if (Array.isArray(result.results)) return result.results;
     if (Array.isArray(result.items)) return result.items;
     if (Array.isArray(result.tasks)) return result.tasks;
   }
-  log('API', `getTasks: unexpected format, returning empty array`);
+  log('API', `unwrapResult: unexpected format, returning empty array`);
   return [];
 }
 
+/**
+ * Fetch all pages for a paginated endpoint.
+ */
+async function fetchAllPages(path, params = '') {
+  let allItems = [];
+  let cursor = null;
+
+  do {
+    const sep = params || cursor ? '?' : '';
+    const cursorParam = cursor ? `cursor=${encodeURIComponent(cursor)}` : '';
+    const joinChar = params && cursorParam ? '&' : '';
+    const url = `${path}${sep}${params}${joinChar}${cursorParam}`;
+
+    const result = await todoistFetch(url);
+    const items = unwrapResult(result);
+    allItems = allItems.concat(items);
+
+    cursor = result && typeof result === 'object' ? result.next_cursor : null;
+    if (cursor) {
+      log('API', `Pagination: got ${items.length} items, next cursor: ${cursor}`);
+    }
+  } while (cursor);
+
+  return allItems;
+}
+
+export async function getTasks(filter) {
+  const params = filter ? `filter=${encodeURIComponent(filter)}` : '';
+  const tasks = await fetchAllPages('/tasks', params);
+  log('API', `getTasks: ${tasks.length} total tasks`);
+  return tasks;
+}
+
+export async function getTasksByProject(projectId) {
+  const tasks = await fetchAllPages('/tasks', `project_id=${projectId}`);
+  log('API', `getTasksByProject(${projectId}): ${tasks.length} tasks`);
+  return tasks;
+}
+
 export async function getProjects() {
-  const result = await todoistFetch('/projects');
-  if (Array.isArray(result)) return result;
-  if (result && typeof result === 'object') {
-    if (Array.isArray(result.results)) return result.results;
-    if (Array.isArray(result.items)) return result.items;
-  }
-  return [];
+  const projects = await fetchAllPages('/projects');
+  log('API', `getProjects: ${projects.length} projects`);
+  return projects;
 }
 
 export async function createTask({content, description, projectId, priority, dueString}) {
@@ -90,10 +124,18 @@ export async function createTask({content, description, projectId, priority, due
   });
 }
 
-export async function updateTask(taskId, updates) {
+export async function updateTask(taskId, {content, description, priority, dueString, projectId}) {
+  const body = {};
+  if (content !== undefined) body.content = content;
+  if (description !== undefined) body.description = description;
+  if (priority !== undefined) body.priority = priority;
+  if (dueString !== undefined) body.due_string = dueString;
+  if (projectId !== undefined) body.project_id = projectId;
+
+  log('API', `Updating task ${taskId}: ${JSON.stringify(body)}`);
   return todoistFetch(`/tasks/${taskId}`, {
     method: 'POST',
-    body: JSON.stringify(updates),
+    body: JSON.stringify(body),
   });
 }
 
