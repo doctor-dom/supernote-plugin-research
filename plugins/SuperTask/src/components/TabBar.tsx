@@ -4,6 +4,7 @@
 
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
+import {log} from '../utils/debug';
 
 type Tab = {
   key: string;
@@ -23,7 +24,7 @@ export default function TabBar({tabs, activeTab, onTabChange}: Props) {
         <Pressable
           key={tab.key}
           style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-          onPress={() => onTabChange(tab.key)}>
+          onPress={() => { log('TabBar', `TAB pressed: ${tab.key}`); onTabChange(tab.key); }}>
           <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
             {tab.label}
           </Text>

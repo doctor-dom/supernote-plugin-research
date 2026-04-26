@@ -4,6 +4,7 @@
 
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
+import {log} from '../utils/debug';
 
 const PRIORITY_LABELS: Record<number, string> = {
   4: 'P1',
@@ -36,10 +37,10 @@ export default function TaskRow({task, onComplete, onPress, showProject}: Props)
   }
 
   return (
-    <Pressable style={styles.row} onPress={() => onPress(task)}>
+    <Pressable style={styles.row} onPress={() => { log('TaskRow', `ROW pressed id=${task.id}`); onPress(task); }}>
       <Pressable
         style={styles.checkbox}
-        onPress={() => onComplete(task.id)}>
+        onPress={() => { log('TaskRow', `CHECKBOX pressed id=${task.id}`); onComplete(task.id); }}>
         <Text style={styles.checkboxText}>○</Text>
       </Pressable>
       <View style={styles.content}>

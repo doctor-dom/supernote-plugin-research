@@ -123,6 +123,8 @@ function App(): React.JSX.Element {
 
   const nav = {push, pop, resetTo, canGoBack};
 
+  log('App', `RENDER screen="${current.name}" stackDepth=${screenStack.length} params=${current.params ? Object.keys(current.params).join(',') : 'none'}`);
+
   return (
     <View style={styles.container}>
       {current.name === 'task-home' && (

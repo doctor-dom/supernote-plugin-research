@@ -40,10 +40,12 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId}`);
     setConfigLoader(loadConfig);
   }, []);
 
   const handleSubmit = async () => {
+    log('TaskAdd', `SUBMIT pressed content="${content.slice(0, 30)}" priority=${priority} dueString="${dueString}" projectId=${projectId}`);
     if (!content.trim()) {
       setStatus('Task title cannot be empty');
       return;
@@ -73,7 +75,7 @@ export default function TaskAdd({nav, projects, defaultProjectId}: Props) {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <Pressable onPress={() => nav.pop()}>
+        <Pressable onPress={() => { log('TaskAdd', 'BACK pressed'); nav.pop(); }}>
           <Text style={styles.backText}>{'< Back'}</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Add Task</Text>

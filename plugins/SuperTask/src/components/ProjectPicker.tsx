@@ -4,6 +4,7 @@
 
 import React from 'react';
 import {View, Text, Pressable, StyleSheet, ScrollView} from 'react-native';
+import {log} from '../utils/debug';
 
 type Project = {
   id: string;
@@ -26,7 +27,7 @@ export default function ProjectPicker({projects, selectedId, onChange}: Props) {
           <Pressable
             key={p.id}
             style={[styles.button, selectedId === p.id && styles.selected]}
-            onPress={() => onChange(selectedId === p.id ? null : p.id)}>
+            onPress={() => { log('ProjectPicker', `pressed: ${p.name} (${p.id})`); onChange(selectedId === p.id ? null : p.id); }}>
             <Text style={[styles.text, selectedId === p.id && styles.textSelected]}>
               {p.name}
             </Text>

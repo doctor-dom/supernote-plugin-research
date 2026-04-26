@@ -81,22 +81,30 @@ export default function TaskHome({nav}: Props) {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    log('TaskHome', 'MOUNT');
+    fetchData();
+  }, [fetchData]);
 
   const handleComplete = async (taskId: string) => {
+    log('TaskHome', `COMPLETE pressed taskId=${taskId}`);
     try {
       await completeTask(taskId);
+      log('TaskHome', `COMPLETE success taskId=${taskId}`);
       setTasks(prev => prev.filter(t => t.id !== taskId));
     } catch (err: any) {
+      logError('TaskHome', err);
       setError(`Complete failed: ${err.message}`);
     }
   };
 
   const handleTaskPress = (task: any) => {
+    log('TaskHome', `TASK pressed id=${task.id} content="${task.content?.slice(0, 30)}"`);
     nav.push('task-detail', {task, projects: projectList});
   };
 
   const handleAddTask = () => {
+    log('TaskHome', 'ADD TASK pressed');
     nav.push('task-add', {projects: projectList});
   };
 
@@ -280,16 +288,16 @@ export default function TaskHome({nav}: Props) {
           <Pressable style={styles.headerButton} onPress={handleAddTask}>
             <Text style={styles.headerButtonText}>+</Text>
           </Pressable>
-          <Pressable style={styles.headerButton} onPress={() => nav.resetTo('debug')}>
+          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.resetTo('debug'); }}>
             <Text style={styles.headerButtonText}>Log</Text>
           </Pressable>
-          <Pressable style={styles.headerButton} onPress={() => PluginManager.closePluginView()}>
+          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); PluginManager.closePluginView(); }}>
             <Text style={styles.headerButtonText}>Close</Text>
           </Pressable>
         </View>
       </View>
 
-      <TabBar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
+      <TabBar tabs={TABS} activeTab={activeTab} onTabChange={(tab) => { log('TaskHome', `TAB changed: ${tab}`); setActiveTab(tab); }} />
 
       <View style={styles.body}>
         {renderContent()}

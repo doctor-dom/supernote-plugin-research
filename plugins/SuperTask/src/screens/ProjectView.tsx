@@ -57,18 +57,25 @@ export default function ProjectView({nav, projectId, projectName}: Props) {
     }
   }, [projectId]);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  useEffect(() => {
+    log('ProjectView', `MOUNT projectId=${projectId} projectName="${projectName}"`);
+    fetchTasks();
+  }, [fetchTasks]);
 
   const handleComplete = async (taskId: string) => {
+    log('ProjectView', `COMPLETE pressed taskId=${taskId}`);
     try {
       await completeTask(taskId);
+      log('ProjectView', `COMPLETE success taskId=${taskId}`);
       setTasks(prev => prev.filter(t => t.id !== taskId));
     } catch (err: any) {
+      logError('ProjectView', err);
       setError(`Complete failed: ${err.message}`);
     }
   };
 
   const handleTaskPress = (task: any) => {
+    log('ProjectView', `TASK pressed id=${task.id} content="${task.content?.slice(0, 30)}"`);
     nav.push('task-detail', {task, projects: []});
   };
 
@@ -109,14 +116,14 @@ export default function ProjectView({nav, projectId, projectName}: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => nav.pop()}>
+        <Pressable style={styles.backButton} onPress={() => { log('ProjectView', 'BACK pressed'); nav.pop(); }}>
           <Text style={styles.backText}>{'< Back'}</Text>
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>{projectName}</Text>
         <View style={styles.headerButtons}>
           <Pressable
             style={styles.headerButton}
-            onPress={() => nav.push('task-add', {projects: [], defaultProjectId: projectId})}>
+            onPress={() => { log('ProjectView', 'ADD pressed'); nav.push('task-add', {projects: [], defaultProjectId: projectId}); }}>
             <Text style={styles.headerButtonText}>+</Text>
           </Pressable>
           <Pressable style={styles.headerButton} onPress={() => PluginManager.closePluginView()}>

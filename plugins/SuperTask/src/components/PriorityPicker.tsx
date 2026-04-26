@@ -6,6 +6,7 @@
 
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
+import {log} from '../utils/debug';
 
 const PRIORITIES = [
   {value: 4, label: 'P1'},
@@ -26,7 +27,7 @@ export default function PriorityPicker({value, onChange}: Props) {
         <Pressable
           key={p.value}
           style={[styles.button, value === p.value && styles.selected]}
-          onPress={() => onChange(p.value)}>
+          onPress={() => { log('PriorityPicker', `pressed: ${p.label}`); onChange(p.value); }}>
           <Text style={[styles.text, value === p.value && styles.textSelected]}>
             {p.label}
           </Text>
