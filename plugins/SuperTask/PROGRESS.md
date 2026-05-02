@@ -320,9 +320,9 @@ plugins/SuperTask/
 - Listeners registered in useEffect need refs to avoid stale closures
 
 **What to do next session:**
+- **Debug mode toggle in Config** -- add a `debugMode` boolean to config. When off: hide Log buttons from all screen headers, hide on-screen trace in Capture (show clean "Recognizing..." screen), disable HTTP log uploads to dev server. When on: everything works as it does now. Default to off for clean UX, flip on when debugging.
 - Phase 4: Subtasks (parent_id support)
 - Phase 6: Doc capture (PDF text selection -- similar to lasso but no OCR needed)
 - Config persistence investigation (Phase 7)
 - Config screen redesign (noted as needed, functional but could be cleaner)
-- Remove on-screen trace from Capture once OCR is stable
 - Test Add Another / Done flow on device
