@@ -328,13 +328,15 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   overlayModal: {
-    padding: 24,
+    paddingVertical: 32,
+    paddingHorizontal: 28,
+    marginHorizontal: 20,
     borderWidth: 3,
     borderColor: '#000000',
     borderRadius: 4,
     backgroundColor: '#ffffff',
     alignItems: 'center',
-    minWidth: 300,
+    alignSelf: 'stretch',
   },
   overlayText: {
     fontSize: 18,

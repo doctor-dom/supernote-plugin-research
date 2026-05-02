@@ -1,8 +1,8 @@
 /**
- * Config screen - API token, project selection, default tab, behavior settings
+ * Config screen - Two-tab layout: Connections and Preferences
  *
- * Settings are always visible if a token exists. Project-dependent sections
- * (project filters, default project) show after projects are fetched.
+ * Defaults to Connections tab if no API token is set,
+ * Preferences tab if a token exists. Same pattern as TaskHome tabs.
  */
 
 import React, {useState, useEffect} from 'react';
@@ -15,14 +15,20 @@ import {
   ScrollView,
   Clipboard,
 } from 'react-native';
-import {PluginManager, FileUtils} from 'sn-plugin-lib';
+import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig, saveConfig} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
+import TabBar from '../components/TabBar';
 
 type Props = {
   onNavigate: (screen: string) => void;
 };
+
+const CONFIG_TABS = [
+  {key: 'connections', label: 'Connections'},
+  {key: 'preferences', label: 'Preferences'},
+];
 
 const TAB_OPTIONS = [
   {key: 'today', label: 'Today'},
@@ -41,6 +47,7 @@ const DEFAULT_SCREEN_OPTIONS = [
 ];
 
 export default function Config({onNavigate}: Props) {
+  const [activeTab, setActiveTab] = useState('connections');
   const [token, setToken] = useState('');
   const [tokenMasked, setTokenMasked] = useState(true);
   const [status, setStatus] = useState('');
@@ -56,14 +63,16 @@ export default function Config({onNavigate}: Props) {
     log('Config', 'MOUNT -- loading saved config');
     loadConfig().then(async config => {
       log('Config', `Config loaded: hasToken=${!!config.apiToken} defaultTab=${config.defaultTab}`);
-      if (config.apiToken) setToken(config.apiToken);
+      if (config.apiToken) {
+        setToken(config.apiToken);
+        setActiveTab('preferences');
+      }
       if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
       if (config.defaultTab) setDefaultTab(config.defaultTab);
       if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
 
-      // Auto-fetch projects if we have a token (lightweight, no test connection)
       if (config.apiToken) {
         try {
           setConfigLoader(() => Promise.resolve({apiToken: config.apiToken}));
@@ -89,40 +98,6 @@ export default function Config({onNavigate}: Props) {
       }
     } catch (err: any) {
       log('Config', `Clipboard paste failed: ${err.message}`);
-    }
-  };
-
-  const handleTestStorage = async () => {
-    log('Config', 'TEST STORAGE pressed');
-    setStatus('Testing storage...');
-    try {
-      const dir = await PluginManager.getPluginDirPath();
-      log('Config', `Plugin dir: ${dir}`);
-      if (!dir) {
-        setStatus('No plugin directory found');
-        return;
-      }
-
-      // Test if saveTextToFile exists on the native side
-      const testPath = `${dir}/config_test.json`;
-      const testData = JSON.stringify({test: true, timestamp: Date.now()});
-
-      if (typeof (FileUtils as any).saveTextToFile === 'function') {
-        await (FileUtils as any).saveTextToFile(testPath, testData);
-        const exists = await FileUtils.exists(testPath);
-        setStatus(exists ? `Storage works! Wrote to ${testPath}` : 'Write succeeded but file not found');
-        log('Config', `saveTextToFile result: exists=${exists}`);
-      } else {
-        // List what methods ARE available
-        const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(FileUtils))
-          .filter(m => m !== 'constructor')
-          .join(', ');
-        setStatus(`saveTextToFile not available. Methods: ${methods}`);
-        log('Config', `FileUtils methods: ${methods}`);
-      }
-    } catch (err: any) {
-      setStatus(`Storage test error: ${err.message}`);
-      log('Config', `Storage test failed: ${err.message}`);
     }
   };
 
@@ -171,25 +146,8 @@ export default function Config({onNavigate}: Props) {
     setTimeout(() => setSaveStatus(''), 2000);
   };
 
-  // Show settings sections if we have a token (don't gate behind connection test)
-  const hasToken = token.trim().length > 0;
-
-  return (
-    <View style={styles.wrapper}>
+  const renderConnectionsTab = () => (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <View style={styles.header}>
-        <Text style={styles.title}>Settings</Text>
-        <View style={styles.headerButtons}>
-          <Pressable style={styles.headerBtn} onPress={handleSave}>
-            <Text style={styles.headerBtnText}>Save</Text>
-          </Pressable>
-          <Pressable style={styles.headerBtn} onPress={() => PluginManager.closePluginView()}>
-            <Text style={styles.headerBtnText}>Close</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* API Token */}
       <View style={styles.section}>
         <Text style={styles.label}>Todoist API Token</Text>
         <View style={styles.tokenRow}>
@@ -212,14 +170,9 @@ export default function Config({onNavigate}: Props) {
         </Text>
       </View>
 
-      <View style={styles.actionRow}>
-        <Pressable style={[styles.actionButton, styles.actionButtonFlex]} onPress={handleTestConnection}>
-          <Text style={styles.actionText}>Test Connection</Text>
-        </Pressable>
-        <Pressable style={[styles.actionButton, styles.actionButtonFlex]} onPress={handleTestStorage}>
-          <Text style={styles.actionText}>Test Storage</Text>
-        </Pressable>
-      </View>
+      <Pressable style={styles.actionButton} onPress={handleTestConnection}>
+        <Text style={styles.actionText}>Test Connection</Text>
+      </Pressable>
 
       {status ? (
         <View style={styles.statusBox}>
@@ -227,65 +180,65 @@ export default function Config({onNavigate}: Props) {
         </View>
       ) : null}
 
-      {/* Default tab -- always show if token exists */}
-      {hasToken && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Default Tab</Text>
-          <View style={styles.tabOptions}>
-            {TAB_OPTIONS.map(opt => (
-              <Pressable
-                key={opt.key}
-                style={[styles.tabOption, defaultTab === opt.key && styles.tabOptionSelected]}
-                onPress={() => setDefaultTab(opt.key)}>
-                <Text style={[
-                  styles.tabOptionText,
-                  defaultTab === opt.key && styles.tabOptionTextSelected,
-                ]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      )}
+      <View style={styles.divider} />
 
-      {/* Post-create behavior -- always show if token exists */}
-      {hasToken && (
-        <View style={styles.section}>
-          <Text style={styles.label}>After Creating a Task</Text>
-          {POST_CREATE_OPTIONS.map(opt => (
+      <Text style={styles.sectionNote}>
+        More integrations coming soon. The Connections tab will support multiple services (Notion, Linear, etc.) with the same add/test/remove pattern.
+      </Text>
+    </ScrollView>
+  );
+
+  const renderPreferencesTab = () => (
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <View style={styles.section}>
+        <Text style={styles.label}>Default Tab</Text>
+        <View style={styles.tabOptions}>
+          {TAB_OPTIONS.map(opt => (
             <Pressable
               key={opt.key}
-              style={styles.radioRow}
-              onPress={() => setPostCreateAction(opt.key)}>
-              <Text style={styles.radioCheck}>
-                {postCreateAction === opt.key ? '(O)' : '(  )'}
+              style={[styles.tabOption, defaultTab === opt.key && styles.tabOptionSelected]}
+              onPress={() => setDefaultTab(opt.key)}>
+              <Text style={[
+                styles.tabOptionText,
+                defaultTab === opt.key && styles.tabOptionTextSelected,
+              ]}>
+                {opt.label}
               </Text>
-              <Text style={styles.radioLabel}>{opt.label}</Text>
             </Pressable>
           ))}
         </View>
-      )}
+      </View>
 
-      {/* Default screen on open -- always show if token exists */}
-      {hasToken && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Open Plugin To</Text>
-          {DEFAULT_SCREEN_OPTIONS.map(opt => (
-            <Pressable
-              key={opt.key}
-              style={styles.radioRow}
-              onPress={() => setDefaultScreen(opt.key)}>
-              <Text style={styles.radioCheck}>
-                {defaultScreen === opt.key ? '(O)' : '(  )'}
-              </Text>
-              <Text style={styles.radioLabel}>{opt.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+      <View style={styles.section}>
+        <Text style={styles.label}>After Creating a Task</Text>
+        {POST_CREATE_OPTIONS.map(opt => (
+          <Pressable
+            key={opt.key}
+            style={styles.radioRow}
+            onPress={() => setPostCreateAction(opt.key)}>
+            <Text style={styles.radioCheck}>
+              {postCreateAction === opt.key ? '(O)' : '(  )'}
+            </Text>
+            <Text style={styles.radioLabel}>{opt.label}</Text>
+          </Pressable>
+        ))}
+      </View>
 
-      {/* Project filters -- need projects fetched */}
+      <View style={styles.section}>
+        <Text style={styles.label}>Open Plugin To</Text>
+        {DEFAULT_SCREEN_OPTIONS.map(opt => (
+          <Pressable
+            key={opt.key}
+            style={styles.radioRow}
+            onPress={() => setDefaultScreen(opt.key)}>
+            <Text style={styles.radioCheck}>
+              {defaultScreen === opt.key ? '(O)' : '(  )'}
+            </Text>
+            <Text style={styles.radioLabel}>{opt.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       {projects.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.label}>Show Projects</Text>
@@ -307,7 +260,6 @@ export default function Config({onNavigate}: Props) {
         </View>
       )}
 
-      {/* Default project -- need projects fetched */}
       {projects.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.label}>Default Project for New Tasks</Text>
@@ -336,13 +288,33 @@ export default function Config({onNavigate}: Props) {
         </View>
       )}
     </ScrollView>
+  );
 
-    {/* Floating save confirmation overlay */}
-    {saveStatus ? (
-      <View style={styles.overlay}>
-        <Text style={styles.overlayText}>{saveStatus}</Text>
+  return (
+    <View style={styles.wrapper}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Settings</Text>
+        <View style={styles.headerButtons}>
+          <Pressable style={styles.headerBtn} onPress={handleSave}>
+            <Text style={styles.headerBtnText}>Save</Text>
+          </Pressable>
+          <Pressable style={styles.headerBtn} onPress={() => PluginManager.closePluginView()}>
+            <Text style={styles.headerBtnText}>Close</Text>
+          </Pressable>
+        </View>
       </View>
-    ) : null}
+
+      <TabBar tabs={CONFIG_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
+
+      <View style={styles.body}>
+        {activeTab === 'connections' ? renderConnectionsTab() : renderPreferencesTab()}
+      </View>
+
+      {saveStatus ? (
+        <View style={styles.overlay}>
+          <Text style={styles.overlayText}>{saveStatus}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -352,18 +324,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
   },
   title: {
     fontSize: 22,
@@ -386,6 +353,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000000',
   },
+  body: {
+    flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 40,
+  },
   section: {
     marginBottom: 16,
   },
@@ -399,6 +376,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666666',
     marginBottom: 8,
+  },
+  sectionNote: {
+    fontSize: 13,
+    color: '#666666',
+    lineHeight: 18,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 16,
   },
   input: {
     borderWidth: 1,
@@ -429,20 +416,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000000',
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
   actionButton: {
     paddingVertical: 12,
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     alignItems: 'center',
-  },
-  actionButtonFlex: {
-    flex: 1,
+    marginBottom: 16,
   },
   actionText: {
     fontSize: 16,
