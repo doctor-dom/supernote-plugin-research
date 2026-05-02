@@ -299,14 +299,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 24,
-    paddingBottom: 48,
+    padding: 16,
+    paddingBottom: 40,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   title: {
     fontSize: 22,
@@ -330,18 +330,18 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   label: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#000000',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   hint: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#666666',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   input: {
     borderWidth: 1,
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
   tokenRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   tokenInput: {
     flex: 1,
@@ -373,12 +373,12 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   actionButton: {
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   actionText: {
     fontSize: 16,
@@ -386,12 +386,12 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   statusBox: {
-    padding: 16,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#000000',
     borderRadius: 4,
     backgroundColor: '#f5f5f5',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   statusText: {
     fontSize: 14,
@@ -400,9 +400,9 @@ const styles = StyleSheet.create({
   projectRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 4,
-    gap: 12,
+    gap: 10,
   },
   projectCheck: {
     fontSize: 16,
@@ -463,9 +463,9 @@ const styles = StyleSheet.create({
   radioRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 4,
-    gap: 12,
+    gap: 10,
   },
   radioCheck: {
     fontSize: 16,

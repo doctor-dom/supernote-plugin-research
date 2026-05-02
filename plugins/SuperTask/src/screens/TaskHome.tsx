@@ -11,7 +11,6 @@ import {
   Pressable,
   FlatList,
   StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
@@ -126,7 +125,6 @@ export default function TaskHome({nav}: Props) {
     if (loading) {
       return (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#000000" />
           <Text style={styles.loadingText}>Loading tasks...</Text>
         </View>
       );

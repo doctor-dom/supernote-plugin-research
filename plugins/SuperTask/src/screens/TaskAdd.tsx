@@ -200,20 +200,22 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       </Pressable>
     </ScrollView>
     {justCreated ? (
-      <View style={styles.overlay}>
-        <Text style={styles.overlayText}>Task added!</Text>
-        <View style={styles.overlayButtons}>
-          <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
-            <Text style={styles.overlayButtonText}>Add Another</Text>
-          </Pressable>
-          <Pressable style={[styles.overlayButton, styles.overlayButtonPrimary]} onPress={handleDone}>
-            <Text style={[styles.overlayButtonText, styles.overlayButtonTextPrimary]}>Done</Text>
-          </Pressable>
+      <View style={styles.overlayBackdrop}>
+        <View style={styles.overlayModal}>
+          <Text style={styles.overlayText}>Task added!</Text>
+          <View style={styles.overlayButtons}>
+            <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
+              <Text style={styles.overlayButtonText}>Add Another</Text>
+            </Pressable>
+            <Pressable style={[styles.overlayButton, styles.overlayButtonPrimary]} onPress={handleDone}>
+              <Text style={[styles.overlayButtonText, styles.overlayButtonTextPrimary]}>Done</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     ) : status ? (
-      <View style={styles.overlay}>
-        <Text style={styles.overlayText}>{status}</Text>
+      <View style={styles.statusBar}>
+        <Text style={styles.statusBarText}>{status}</Text>
       </View>
     ) : null}
     </View>
@@ -300,27 +302,55 @@ const styles = StyleSheet.create({
   submitTextDisabled: {
     color: '#cccccc',
   },
-  overlay: {
+  overlayBackdrop: {
     position: 'absolute',
-    bottom: 24,
-    left: 24,
-    right: 24,
-    padding: 14,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    zIndex: 10,
+    elevation: 10,
+  },
+  overlayModal: {
+    padding: 24,
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     backgroundColor: '#ffffff',
     alignItems: 'center',
+    minWidth: 280,
   },
   overlayText: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
     color: '#000000',
   },
   overlayButtons: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 12,
+    marginTop: 16,
+  },
+  statusBar: {
+    position: 'absolute',
+    top: 60,
+    left: 24,
+    right: 24,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: 4,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    zIndex: 10,
+    elevation: 10,
+  },
+  statusBarText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000000',
   },
   overlayButton: {
     flex: 1,
