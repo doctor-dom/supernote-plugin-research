@@ -22,6 +22,7 @@ import DatePicker from '../components/DatePicker';
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
   pop: () => void;
+  replace: (name: string, params?: Record<string, any>) => void;
   resetTo: (name: string) => void;
   canGoBack: boolean;
 };
@@ -108,7 +109,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     log('TaskAdd', `VIEW TASK pressed id=${createdTask?.id}`);
     if (createdTask) {
       setJustCreated(false);
-      nav.push('task-detail', {task: createdTask, projects});
+      nav.replace('task-detail', {task: createdTask, projects});
     }
   };
 

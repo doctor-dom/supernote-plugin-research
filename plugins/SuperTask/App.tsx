@@ -56,6 +56,11 @@ function App(): React.JSX.Element {
     });
   }, []);
 
+  const replace = useCallback((name: string, params?: Record<string, any>) => {
+    log('App', `replace: ${name}`);
+    setScreenStack(prev => [...prev.slice(0, -1), {name, params}]);
+  }, []);
+
   const resetTo = useCallback((name: string, params?: Record<string, any>) => {
     log('App', `resetTo: ${name}`);
     setScreenStack([{name, params}]);
@@ -159,7 +164,7 @@ function App(): React.JSX.Element {
     );
   }
 
-  const nav = {push, pop, resetTo, canGoBack};
+  const nav = {push, pop, replace, resetTo, canGoBack};
 
   return (
     <View style={styles.container}>
