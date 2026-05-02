@@ -13,6 +13,7 @@ import {
   Pressable,
   StyleSheet,
   ScrollView,
+  Clipboard,
 } from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig, saveConfig} from '../utils/config';
@@ -76,6 +77,20 @@ export default function Config({onNavigate}: Props) {
       }
     });
   }, []);
+
+  const handlePaste = async () => {
+    try {
+      const text = await Clipboard.getString();
+      if (text && text.trim()) {
+        setToken(text.trim());
+        log('Config', `Pasted token from clipboard (${text.trim().length} chars)`);
+      } else {
+        log('Config', 'Clipboard empty');
+      }
+    } catch (err: any) {
+      log('Config', `Clipboard paste failed: ${err.message}`);
+    }
+  };
 
   const handleTestConnection = async () => {
     const t = token.trim();
@@ -151,12 +166,15 @@ export default function Config({onNavigate}: Props) {
             placeholder="Paste your API token"
             secureTextEntry={tokenMasked}
           />
+          <Pressable style={styles.tokenToggle} onPress={handlePaste}>
+            <Text style={styles.tokenToggleText}>Paste</Text>
+          </Pressable>
           <Pressable style={styles.tokenToggle} onPress={() => setTokenMasked(!tokenMasked)}>
             <Text style={styles.tokenToggleText}>{tokenMasked ? 'Show' : 'Hide'}</Text>
           </Pressable>
         </View>
         <Text style={styles.hint}>
-          Find your token at todoist.com/prefs/integrations
+          Find your token at todoist.com/prefs/integrations. Copy it, then tap Paste.
         </Text>
       </View>
 
