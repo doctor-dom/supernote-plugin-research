@@ -45,6 +45,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
   const [submitting, setSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [justCreated, setJustCreated] = useState(false);
+  const [createdTask, setCreatedTask] = useState<any>(null);
 
   const [postCreateAction, setPostCreateAction] = useState('prompt');
 
@@ -67,14 +68,15 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     setStatus('Adding to Todoist...');
 
     try {
-      await createTask({
+      const task = await createTask({
         content: content.trim(),
         description: description.trim() || undefined,
         projectId: projectId || undefined,
         priority,
         dueString: dueString.trim() || undefined,
       });
-      log('TaskAdd', `Created task: ${content.trim()} postCreateAction=${postCreateAction}`);
+      log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
+      setCreatedTask(task);
       setSubmitting(false);
       if (postCreateAction === 'auto-back') {
         setStatus('Task added!');
@@ -98,7 +100,16 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     setShowDatePicker(false);
     setStatus('');
     setJustCreated(false);
+    setCreatedTask(null);
     // Keep project and priority as defaults for rapid entry
+  };
+
+  const handleViewTask = () => {
+    log('TaskAdd', `VIEW TASK pressed id=${createdTask?.id}`);
+    if (createdTask) {
+      setJustCreated(false);
+      nav.push('task-detail', {task: createdTask, projects});
+    }
   };
 
   const handleDone = () => {
@@ -200,12 +211,15 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       </Pressable>
     </ScrollView>
     {justCreated ? (
-      <View style={styles.overlayBackdrop}>
+      <View style={styles.overlayCenter}>
         <View style={styles.overlayModal}>
           <Text style={styles.overlayText}>Task added!</Text>
           <View style={styles.overlayButtons}>
             <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
               <Text style={styles.overlayButtonText}>Add Another</Text>
+            </Pressable>
+            <Pressable style={styles.overlayButton} onPress={handleViewTask}>
+              <Text style={styles.overlayButtonText}>View Task</Text>
             </Pressable>
             <Pressable style={[styles.overlayButton, styles.overlayButtonPrimary]} onPress={handleDone}>
               <Text style={[styles.overlayButtonText, styles.overlayButtonTextPrimary]}>Done</Text>
@@ -302,7 +316,7 @@ const styles = StyleSheet.create({
   submitTextDisabled: {
     color: '#cccccc',
   },
-  overlayBackdrop: {
+  overlayCenter: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -310,18 +324,17 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     zIndex: 10,
     elevation: 10,
   },
   overlayModal: {
     padding: 24,
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: '#000000',
     borderRadius: 4,
     backgroundColor: '#ffffff',
     alignItems: 'center',
-    minWidth: 280,
+    minWidth: 300,
   },
   overlayText: {
     fontSize: 18,

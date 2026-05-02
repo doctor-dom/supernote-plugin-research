@@ -15,7 +15,7 @@ import {
   ScrollView,
   Clipboard,
 } from 'react-native';
-import {PluginManager} from 'sn-plugin-lib';
+import {PluginManager, FileUtils} from 'sn-plugin-lib';
 import {loadConfig, saveConfig} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
@@ -89,6 +89,40 @@ export default function Config({onNavigate}: Props) {
       }
     } catch (err: any) {
       log('Config', `Clipboard paste failed: ${err.message}`);
+    }
+  };
+
+  const handleTestStorage = async () => {
+    log('Config', 'TEST STORAGE pressed');
+    setStatus('Testing storage...');
+    try {
+      const dir = await PluginManager.getPluginDirPath();
+      log('Config', `Plugin dir: ${dir}`);
+      if (!dir) {
+        setStatus('No plugin directory found');
+        return;
+      }
+
+      // Test if saveTextToFile exists on the native side
+      const testPath = `${dir}/config_test.json`;
+      const testData = JSON.stringify({test: true, timestamp: Date.now()});
+
+      if (typeof (FileUtils as any).saveTextToFile === 'function') {
+        await (FileUtils as any).saveTextToFile(testPath, testData);
+        const exists = await FileUtils.exists(testPath);
+        setStatus(exists ? `Storage works! Wrote to ${testPath}` : 'Write succeeded but file not found');
+        log('Config', `saveTextToFile result: exists=${exists}`);
+      } else {
+        // List what methods ARE available
+        const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(FileUtils))
+          .filter(m => m !== 'constructor')
+          .join(', ');
+        setStatus(`saveTextToFile not available. Methods: ${methods}`);
+        log('Config', `FileUtils methods: ${methods}`);
+      }
+    } catch (err: any) {
+      setStatus(`Storage test error: ${err.message}`);
+      log('Config', `Storage test failed: ${err.message}`);
     }
   };
 
@@ -178,9 +212,14 @@ export default function Config({onNavigate}: Props) {
         </Text>
       </View>
 
-      <Pressable style={styles.actionButton} onPress={handleTestConnection}>
-        <Text style={styles.actionText}>Test Connection</Text>
-      </Pressable>
+      <View style={styles.actionRow}>
+        <Pressable style={[styles.actionButton, styles.actionButtonFlex]} onPress={handleTestConnection}>
+          <Text style={styles.actionText}>Test Connection</Text>
+        </Pressable>
+        <Pressable style={[styles.actionButton, styles.actionButtonFlex]} onPress={handleTestStorage}>
+          <Text style={styles.actionText}>Test Storage</Text>
+        </Pressable>
+      </View>
 
       {status ? (
         <View style={styles.statusBox}>
@@ -390,13 +429,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000000',
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
   actionButton: {
     paddingVertical: 12,
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     alignItems: 'center',
-    marginBottom: 16,
+  },
+  actionButtonFlex: {
+    flex: 1,
   },
   actionText: {
     fontSize: 16,
