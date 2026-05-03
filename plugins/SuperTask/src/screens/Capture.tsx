@@ -177,38 +177,67 @@ export default function Capture({mode, nav}: Props) {
 
       const content = recognized.result.trim();
 
-      // Compute bounding box from lasso elements
+      // Compute bounding box from lasso elements (EMR coords) then convert to pixels
       let bounds = null;
       try {
-        let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+        let emrMinX = Infinity, emrMinY = Infinity, emrMaxX = 0, emrMaxY = 0;
         for (const el of elements.result) {
-          if (el.maxX !== undefined && el.maxX > maxX) maxX = el.maxX;
-          if (el.maxY !== undefined && el.maxY > maxY) maxY = el.maxY;
+          if (el.maxX !== undefined && el.maxX > emrMaxX) emrMaxX = el.maxX;
+          if (el.maxY !== undefined && el.maxY > emrMaxY) emrMaxY = el.maxY;
           // Check sub-objects for position data
           if (el.textBox?.textRect) {
             const r = el.textBox.textRect;
-            if (r.left < minX) minX = r.left;
-            if (r.top < minY) minY = r.top;
+            if (r.left < emrMinX) emrMinX = r.left;
+            if (r.top < emrMinY) emrMinY = r.top;
           }
           if (el.link) {
-            if (el.link.X < minX) minX = el.link.X;
-            if (el.link.Y < minY) minY = el.link.Y;
+            if (el.link.X < emrMinX) emrMinX = el.link.X;
+            if (el.link.Y < emrMinY) emrMinY = el.link.Y;
           }
           if (el.title) {
-            if (el.title.X < minX) minX = el.title.X;
-            if (el.title.Y < minY) minY = el.title.Y;
+            if (el.title.X < emrMinX) emrMinX = el.title.X;
+            if (el.title.Y < emrMinY) emrMinY = el.title.Y;
           }
         }
-        // For stroke elements without explicit min, estimate from max
-        // Strokes typically span some area -- use a reasonable estimate
-        if (minX === Infinity) minX = Math.max(0, maxX - 600);
-        if (minY === Infinity) minY = Math.max(0, maxY - 80);
-        bounds = {left: Math.round(minX), top: Math.round(minY), right: Math.round(maxX), bottom: Math.round(maxY)};
-        addTrace(`Bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom}`);
+        addTrace(`EMR bounds: maxX=${emrMaxX} maxY=${emrMaxY} minX=${emrMinX === Infinity ? 'none' : emrMinX} minY=${emrMinY === Infinity ? 'none' : emrMinY}`);
+
         // Log first element structure for debugging
         const el0 = elements.result[0];
         addTrace(`Element[0] keys: ${Object.keys(el0).join(',')}`);
         addTrace(`Element[0] maxX=${el0.maxX} maxY=${el0.maxY} type=${el0.type}`);
+
+        // Convert EMR coordinates to pixel coordinates
+        // EMR X axis -> Android Y (direct scale)
+        // EMR Y axis -> Android X (mirrored: width - 1 - scaled)
+        const isA5X2 = pageSize.width >= 1920;
+        const realMaxX = isA5X2 ? 21632 : 15819;
+        const realMaxY = isA5X2 ? 16224 : 11864;
+        const scaleX = realMaxX / (pageSize.height - 1); // EMR X per pixel Y
+        const scaleY = realMaxY / (pageSize.width - 1);  // EMR Y per pixel X
+
+        // Max EMR point -> pixel left (from maxY) and pixel bottom (from maxX)
+        const pxLeft = Math.round(pageSize.width - 1 - emrMaxY / scaleY);
+        const pxBottom = Math.round(emrMaxX / scaleX);
+
+        let pxTop: number, pxRight: number;
+        if (emrMinX !== Infinity && emrMinY !== Infinity) {
+          // Have actual min values from sub-objects
+          pxRight = Math.round(pageSize.width - 1 - emrMinY / scaleY);
+          pxTop = Math.round(emrMinX / scaleX);
+        } else {
+          // Estimate: ~60px tall, width based on recognized text length
+          const estWidth = Math.max(200, Math.min(800, (content?.length || 15) * 25));
+          pxTop = Math.max(0, pxBottom - 60);
+          pxRight = Math.min(pageSize.width - 1, pxLeft + estWidth);
+        }
+
+        bounds = {
+          left: Math.min(pxLeft, pxRight),
+          top: Math.min(pxTop, pxBottom),
+          right: Math.max(pxLeft, pxRight),
+          bottom: Math.max(pxTop, pxBottom),
+        };
+        addTrace(`Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom} (${isA5X2 ? 'A5X2' : 'A5X'})`);
       } catch (e: any) {
         addTrace(`Bounds calc failed: ${e.message}`);
       }
@@ -218,7 +247,7 @@ export default function Capture({mode, nav}: Props) {
       const description = `From: ${fileName} p.${pageNum}`;
       addTrace(`Done: "${content.slice(0, 40)}" -- ${description}`);
 
-      const noteContext = bounds ? {filePath, pageNum, bounds} : null;
+      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize} : null;
       return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureLasso ERROR: ${err.message}`);

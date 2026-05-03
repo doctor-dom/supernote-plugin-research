@@ -31,6 +31,7 @@ type NoteContext = {
   filePath: string;
   pageNum: number;
   bounds: {left: number; top: number; right: number; bottom: number};
+  pageSize?: {width: number; height: number};
 };
 
 type Props = {
@@ -109,7 +110,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
   const insertTaskMark = async (taskId: string) => {
     if (!noteContext) return;
     const {filePath, pageNum, bounds} = noteContext;
-    log('TaskAdd', `Inserting task mark: file=${filePath} page=${pageNum} bounds=${JSON.stringify(bounds)} taskId=${taskId}`);
+    log('TaskAdd', `Inserting task mark: file=${filePath} page=${pageNum} bounds=${JSON.stringify(bounds)} pageSize=${JSON.stringify(noteContext.pageSize)} taskId=${taskId}`);
 
     try {
       const padding = 10;
