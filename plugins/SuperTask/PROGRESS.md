@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Phase 5 complete.** Lasso OCR capture working end-to-end on device. Full task viewer with navigation, Todoist sync, and expanded config.
+**Session 5 in progress.** Task marking on notes built but needs EMR-to-pixel coordinate fix. Config redesigned with tabs. UX polish applied across screens.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -12,25 +12,27 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 1b: Config + connection | Done | Todoist API v1 verified on-device (29 tasks) |
 | 1c: Dev tooling | Done | HTTP dev log server streaming to Mac |
 | 2: Task viewer | Done | Stack nav, tabbed home, project drill-down, detail/add, date picker |
-| 3: Post-action + config | Done | Add Another/Done flow, silent refresh, expanded settings |
+| 3: Post-action + config | Done | Add Another/Done/View Task flow, silent refresh, tabbed config |
 | 5: Lasso capture | Done | Handwriting OCR via recognizeElements, pre-fills TaskAdd |
+| 5b: Task marking | In progress | Dotted border + T badge on note page, needs coord fix |
+| 5c: This Page | Built | TaskHome shows tasks linked to current note/page |
 | 4: Subtasks | Next | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
-| 7: Config persistence | Backlog | SDK has no writeFile -- needs workaround |
+| 7: Config persistence | Blocked | SDK has no writeFile, saveTextToFile not exposed to JS |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
 
 ## To test on device
 
-- [ ] Add Another / Done flow after creating a task (built Session 4, untested)
-- [ ] Silent refresh on TaskHome (no spinner, just swap data)
-- [ ] Expanded Config screen (project toggles, default tab/screen/project, post-create behavior)
-- [ ] Config button routing to Config screen (fixed race condition + callback name)
+- [ ] Task marking: fix EMR-to-pixel coordinate conversion, then test insertElements
+- [ ] "This Page" section in TaskHome (built, needs tasks with matching descriptions to appear)
+- [ ] Tabbed Config screen (Connections / Preferences tabs)
 
 ## To build next
 
-1. **Debug mode toggle** -- `debugMode` boolean in Config. OFF hides Log buttons, on-screen trace, HTTP uploads. ON keeps current behavior. Default OFF.
-2. **Phase 4: Subtasks** -- `parent_id` mapping in create/update. Subtask list in TaskDetail. Display strategy in TaskHome (indented? hidden until tapped?).
-3. **Phase 6: Doc capture** -- PDF text selection, similar to lasso but no OCR.
+1. **Fix task marking coordinates** -- element maxX/maxY are in EMR space (20967, 15725), not pixels (1404, 1872). Need `PointUtils.emrPoint2Android()` or manual conversion before inserting mark elements.
+2. **Debug mode toggle** -- `debugMode` boolean in Config. OFF hides Log buttons, on-screen trace, HTTP uploads. Default OFF.
+3. **Phase 4: Subtasks** -- `parent_id` mapping in create/update. Subtask list in TaskDetail.
+4. **Phase 6: Doc capture** -- PDF text selection, similar to lasso but no OCR.
 
 ## Architecture
 
@@ -46,14 +48,15 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 ### Screen flow
 
 ```
-TaskHome (Today/Upcoming/Projects tabs)
+TaskHome (Today/Upcoming/Projects tabs, "This Page" section)
   -> ProjectView (single project drill-down)
   -> TaskDetail (edit/complete/delete)
-  -> TaskAdd (create, with Add Another/Done)
+  -> TaskAdd (create, with Add Another/View Task/Done)
+     -> View Task replaces TaskAdd (Back goes to TaskHome)
 
-Capture (lasso OCR or doc text) -> TaskAdd (pre-filled)
+Capture (lasso OCR or doc text) -> TaskAdd (pre-filled, marks note on submit)
 
-Config (API token, project filters, defaults)
+Config (Connections tab / Preferences tab)
 ```
 
 ### File structure
@@ -145,16 +148,37 @@ bash buildPlugin.sh                          # 2. Build
 - `keyboardShouldPersistTaps="handled"` needed on ScrollViews with TextInputs
 - Position-absolute overlays work well for status messages (no layout shift)
 
+### Element coordinates (Session 5)
+- Lasso element `maxX`/`maxY` are in **EMR (digitizer) coordinates**, not pixels
+- Example: maxX=20967, maxY=15725 on a 1404x1872 pixel page
+- Element keys from lasso: `stroke, angles, contoursSrc, status, numInPage, recognizeResult, maxY, thickness, pageNum, maxX, layerNum, type, uuid`
+- Stroke elements (type=0) have no explicit minX/minY -- only maxX/maxY
+- Must convert to pixel coordinates before calling `insertElements`
+- SDK has `PointUtils.emrPoint2Android()` -- needs testing
+
+### OCR sensitivity (Session 5)
+- `recognizeElements` returns `success: false` when lasso captures strokes from adjacent lines
+- Even reasonable visual distance between lines can cause failure if stroke elements overlap
+- Works fine with isolated handwriting (13 elements, clear separation)
+
+### Insertable element types (Session 5)
+- **Link (600)**: X, Y, width, height, style (0=solid underline, 1=solid border, 2=dashed border), linkType (4=URL), destPath
+- **Text (500)**: textContentFull, textRect {left, top, right, bottom}, fontSize, textBold, textFrameStyle (3=stroke border)
+- **Title (100)**: X, Y, width, height, style (1=black bg, 2=light gray, 3=dark gray, 4=shadow), controlTrailNums
+- **Geometry (700)**: type (straightLine, GEO_circle, GEO_ellipse, GEO_polygon), points, penColor, penWidth
+- All text/link/title elements must have `layerNum: 0`
+
 ### Config persistence (deferred)
 
 | Approach | Result |
 |----------|--------|
 | `FileUtils.writeFile()` | Method doesn't exist |
+| `FileUtils.saveTextToFile()` | Exists in Java but not exposed to JS (confirmed on-device Session 5) |
 | `fetch('file://...')` | Unverified, likely broken |
 | `createNote()` + `insertElements()` | Error 802: template not found |
 | `adb push` | ADB locked down |
 
-**To investigate:** AsyncStorage, Android SharedPreferences via TurboModule, undiscovered write API via `getPluginDirPath()`
+**To investigate:** AsyncStorage, Android SharedPreferences via TurboModule
 
 ---
 
@@ -190,3 +214,35 @@ bash buildPlugin.sh                          # 2. Build
 - Fixed config button routing (onClick callback + global capture for race condition)
 - Lasso OCR working: recognizeElements needs page size param, was hanging without it
 - Capture.tsx: on-screen trace log, SDK call timeouts, navigates to TaskAdd with OCR text
+
+### Session 5 -- 2026-05-02: UX polish, task marking, config redesign
+
+**On-device testing of Session 4 work:**
+- Add Another/Done flow works. View Task button added (navigates to created task's detail)
+- Silent refresh works, but replaced ActivityIndicator with static text (animated spinner shows as frozen artifact on e-ink)
+- Config button routing works, expanded settings work
+- Clipboard.getString() works -- added Paste button for API token input
+- `FileUtils.saveTextToFile()` confirmed not available from JS (exists in Java but not exposed)
+
+**UX improvements:**
+- TaskAdd overlay: centered modal over form content (was bottom-anchored, blocked by handwriting input)
+- View Task uses `nav.replace()` so Back goes to TaskHome, not empty add form
+- Config screen: split into Connections and Preferences tabs via TabBar. Defaults to Connections if no token, Preferences if token exists.
+- Config layout tightened throughout
+
+**Task marking on notes (built, needs coord fix):**
+- After lasso capture + task creation, inserts dashed border (Link element) + T badge (Text element) on note page
+- Stores Todoist task URL in the link element's destPath
+- Problem: element maxX/maxY are in EMR coordinates (20967, 15725), not pixel coords (1404, 1872). Marks placed off-page.
+- Next: convert via PointUtils.emrPoint2Android() or manual ratio conversion
+
+**"This Page" section (built, untested):**
+- TaskHome detects current note/page via getCurrentFilePath/getCurrentPageNum
+- Filters tasks with matching `From: {noteName} p.{pageNum}` in description
+- Shows "THIS PAGE" section above tab content, only when matches exist
+
+**OCR finding:**
+- recognizeElements fails (success=false) when lasso grabs strokes from adjacent lines
+- Works fine with isolated handwriting
+
+**PROGRESS.md restructured:** dashboard at top for quick scanning, detailed reference below
