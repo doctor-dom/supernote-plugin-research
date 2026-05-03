@@ -41,6 +41,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+// EMR digitizer maximum values for known Supernote page sizes.
+// All devices (A5, A6, A6X, A5X, Nomad, Manta) share the same ~8.454
+// EMR-units-per-pixel ratio from the Wacom digitizer layer.
+function getEmrMaximums(pageSize: {width: number; height: number}) {
+  const w = pageSize.width, h = pageSize.height;
+  // A5X, A6X, A5, A6, Nomad -- portrait and landscape
+  if (w === 1404 && h === 1872) return {maxX: 15819, maxY: 11864};
+  if (w === 1872 && h === 1404) return {maxX: 11864, maxY: 15819};
+  // A5X2 / Manta -- portrait and landscape
+  if (w === 1920 && h === 2560) return {maxX: 21632, maxY: 16224};
+  if (w === 2560 && h === 1920) return {maxX: 16224, maxY: 21632};
+  // Fallback for split modes or future devices: use approximate ratio
+  const EMR_RATIO = 8.454;
+  return {
+    maxX: Math.round((h - 1) * EMR_RATIO),
+    maxY: Math.round((w - 1) * EMR_RATIO),
+  };
+}
+
 export default function Capture({mode, nav}: Props) {
   // On-screen trace log for debugging without dev server
   const [trace, setTrace] = useState<string[]>([]);
@@ -213,9 +232,8 @@ export default function Capture({mode, nav}: Props) {
         // Convert EMR coordinates to pixel coordinates
         // EMR X axis -> Android Y (direct scale)
         // EMR Y axis -> Android X (mirrored: width - 1 - scaled)
-        const isA5X2 = pageSize.width >= 1920;
-        const realMaxX = isA5X2 ? 21632 : 15819;
-        const realMaxY = isA5X2 ? 16224 : 11864;
+        // Known EMR maximums for exact page sizes; ratio fallback for others
+        const {maxX: realMaxX, maxY: realMaxY} = getEmrMaximums(pageSize);
         const scaleX = realMaxX / (pageSize.height - 1); // EMR X per pixel Y
         const scaleY = realMaxY / (pageSize.width - 1);  // EMR Y per pixel X
 
@@ -241,7 +259,7 @@ export default function Capture({mode, nav}: Props) {
           right: Math.max(pxLeft, pxRight),
           bottom: Math.max(pxTop, pxBottom),
         };
-        addTrace(`Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom} (${isA5X2 ? 'A5X2' : 'A5X'})`);
+        addTrace(`Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom} (page ${pageSize.width}x${pageSize.height}, emrMax ${realMaxX}/${realMaxY})`);
       } catch (e: any) {
         addTrace(`Bounds calc failed: ${e.message}`);
       }
