@@ -41,23 +41,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-// EMR digitizer maximum values for known Supernote page sizes.
-// All devices (A5, A6, A6X, A5X, Nomad, Manta) share the same ~8.454
-// EMR-units-per-pixel ratio from the Wacom digitizer layer.
-function getEmrMaximums(pageSize: {width: number; height: number}) {
-  const w = pageSize.width, h = pageSize.height;
-  // A5X, A6X, A5, A6, Nomad -- portrait and landscape
-  if (w === 1404 && h === 1872) return {maxX: 15819, maxY: 11864};
-  if (w === 1872 && h === 1404) return {maxX: 11864, maxY: 15819};
-  // A5X2 / Manta -- portrait and landscape
-  if (w === 1920 && h === 2560) return {maxX: 21632, maxY: 16224};
-  if (w === 2560 && h === 1920) return {maxX: 16224, maxY: 21632};
-  // Fallback for split modes or future devices: use approximate ratio
-  const EMR_RATIO = 8.454;
-  return {
-    maxX: Math.round((h - 1) * EMR_RATIO),
-    maxY: Math.round((w - 1) * EMR_RATIO),
-  };
+// EMR digitizer maximum values.
+// Some devices (e.g. Nomad) report page size 1404x1872 but their
+// digitizer uses A5X2-range EMR values (max ~21632/16224). We detect
+// the correct range from the actual element data rather than guessing
+// from page size alone.
+const EMR_NORMAL = {portrait: {maxX: 15819, maxY: 11864}, landscape: {maxX: 11864, maxY: 15819}};
+const EMR_A5X2   = {portrait: {maxX: 21632, maxY: 16224}, landscape: {maxX: 16224, maxY: 21632}};
+
+function getEmrMaximums(pageSize: {width: number; height: number}, emrMaxX: number, emrMaxY: number) {
+  const isPortrait = pageSize.width <= pageSize.height;
+  // If any element EMR value exceeds normal range, device uses A5X2 digitizer
+  const usesA5X2 = emrMaxX > 15819 || emrMaxY > 11864;
+  const range = usesA5X2 ? EMR_A5X2 : EMR_NORMAL;
+  return isPortrait ? range.portrait : range.landscape;
 }
 
 export default function Capture({mode, nav}: Props) {
@@ -233,7 +230,7 @@ export default function Capture({mode, nav}: Props) {
         // EMR X axis -> Android Y (direct scale)
         // EMR Y axis -> Android X (mirrored: width - 1 - scaled)
         // Known EMR maximums for exact page sizes; ratio fallback for others
-        const {maxX: realMaxX, maxY: realMaxY} = getEmrMaximums(pageSize);
+        const {maxX: realMaxX, maxY: realMaxY} = getEmrMaximums(pageSize, emrMaxX, emrMaxY);
         const scaleX = realMaxX / (pageSize.height - 1); // EMR X per pixel Y
         const scaleY = realMaxY / (pageSize.width - 1);  // EMR Y per pixel X
 
