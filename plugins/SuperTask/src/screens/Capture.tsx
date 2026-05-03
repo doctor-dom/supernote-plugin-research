@@ -94,6 +94,7 @@ export default function Capture({mode, nav}: Props) {
         initialContent: captureResult.content,
         initialDescription: captureResult.description,
         captureMode: mode,
+        noteContext: captureResult.noteContext,
       });
     } catch (err: any) {
       logError('Capture', err);
@@ -102,7 +103,7 @@ export default function Capture({mode, nav}: Props) {
     }
   };
 
-  const captureLasso = async (): Promise<{content: string; description: string} | null> => {
+  const captureLasso = async (): Promise<{content: string; description: string; noteContext?: any} | null> => {
     addTrace('captureLasso: calling getLassoElements...');
 
     try {
@@ -176,11 +177,49 @@ export default function Capture({mode, nav}: Props) {
 
       const content = recognized.result.trim();
 
+      // Compute bounding box from lasso elements
+      let bounds = null;
+      try {
+        let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+        for (const el of elements.result) {
+          if (el.maxX !== undefined && el.maxX > maxX) maxX = el.maxX;
+          if (el.maxY !== undefined && el.maxY > maxY) maxY = el.maxY;
+          // Check sub-objects for position data
+          if (el.textBox?.textRect) {
+            const r = el.textBox.textRect;
+            if (r.left < minX) minX = r.left;
+            if (r.top < minY) minY = r.top;
+          }
+          if (el.link) {
+            if (el.link.X < minX) minX = el.link.X;
+            if (el.link.Y < minY) minY = el.link.Y;
+          }
+          if (el.title) {
+            if (el.title.X < minX) minX = el.title.X;
+            if (el.title.Y < minY) minY = el.title.Y;
+          }
+        }
+        // For stroke elements without explicit min, estimate from max
+        // Strokes typically span some area -- use a reasonable estimate
+        if (minX === Infinity) minX = Math.max(0, maxX - 600);
+        if (minY === Infinity) minY = Math.max(0, maxY - 80);
+        bounds = {left: Math.round(minX), top: Math.round(minY), right: Math.round(maxX), bottom: Math.round(maxY)};
+        addTrace(`Bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom}`);
+        // Log first element structure for debugging
+        const el0 = elements.result[0];
+        addTrace(`Element[0] keys: ${Object.keys(el0).join(',')}`);
+        addTrace(`Element[0] maxX=${el0.maxX} maxY=${el0.maxY} type=${el0.type}`);
+      } catch (e: any) {
+        addTrace(`Bounds calc failed: ${e.message}`);
+      }
+
       // Build source context from filePath/pageNum we already fetched
       const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
       const description = `From: ${fileName} p.${pageNum}`;
       addTrace(`Done: "${content.slice(0, 40)}" -- ${description}`);
-      return {content, description};
+
+      const noteContext = bounds ? {filePath, pageNum, bounds} : null;
+      return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureLasso ERROR: ${err.message}`);
       setError(`Recognition error: ${err.message}`);

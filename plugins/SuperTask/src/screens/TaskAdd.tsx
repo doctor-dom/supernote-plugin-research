@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager} from 'sn-plugin-lib';
+import {PluginManager, PluginFileAPI, PluginNoteAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -27,6 +27,12 @@ type Nav = {
   canGoBack: boolean;
 };
 
+type NoteContext = {
+  filePath: string;
+  pageNum: number;
+  bounds: {left: number; top: number; right: number; bottom: number};
+};
+
 type Props = {
   nav: Nav;
   projects: any[];
@@ -34,9 +40,10 @@ type Props = {
   initialContent?: string;
   initialDescription?: string;
   captureMode?: 'lasso' | 'doc';
+  noteContext?: NoteContext | null;
 };
 
-export default function TaskAdd({nav, projects, defaultProjectId, initialContent, initialDescription, captureMode}: Props) {
+export default function TaskAdd({nav, projects, defaultProjectId, initialContent, initialDescription, captureMode, noteContext}: Props) {
   const [content, setContent] = useState(initialContent || '');
   const [description, setDescription] = useState(initialDescription || '');
   const [priority, setPriority] = useState(1);
@@ -78,6 +85,12 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       });
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
       setCreatedTask(task);
+
+      // Insert visual mark on note page (non-blocking)
+      if (task?.id && noteContext) {
+        insertTaskMark(task.id).catch(() => {});
+      }
+
       setSubmitting(false);
       if (postCreateAction === 'auto-back') {
         setStatus('Task added!');
@@ -90,6 +103,67 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       logError('TaskAdd', err);
       setStatus(`Error: ${err.message}`);
       setSubmitting(false);
+    }
+  };
+
+  const insertTaskMark = async (taskId: string) => {
+    if (!noteContext) return;
+    const {filePath, pageNum, bounds} = noteContext;
+    log('TaskAdd', `Inserting task mark: file=${filePath} page=${pageNum} bounds=${JSON.stringify(bounds)} taskId=${taskId}`);
+
+    try {
+      const padding = 10;
+      const badgeSize = 24;
+      const borderLeft = bounds.left - padding;
+      const borderTop = bounds.top - padding;
+      const borderRight = bounds.right + padding;
+      const borderBottom = bounds.bottom + padding;
+
+      // Dashed border via Link element
+      const borderElement = {
+        type: 600, // TYPE_LINK
+        layerNum: 0,
+        link: {
+          category: 0,
+          X: borderLeft,
+          Y: borderTop,
+          width: borderRight - borderLeft,
+          height: borderBottom - borderTop,
+          style: 2, // dashed border
+          linkType: 4, // URL
+          destPath: `https://todoist.com/task/${taskId}`,
+          fullText: '',
+          showText: '',
+          fontSize: 1,
+        },
+      };
+
+      // T badge via Text element
+      const tBadge = {
+        type: 500, // TYPE_TEXT
+        layerNum: 0,
+        textBox: {
+          textContentFull: 'T',
+          textRect: {
+            left: borderLeft - badgeSize - 4,
+            top: borderTop,
+            right: borderLeft - 4,
+            bottom: borderTop + badgeSize,
+          },
+          fontSize: 14,
+          textBold: 1,
+          textAlign: 1, // center
+          textFrameStyle: 3, // stroke border
+          textEditable: 1, // not editable
+        },
+      };
+
+      await PluginNoteAPI.saveCurrentNote();
+      const result = await PluginFileAPI.insertElements(filePath, pageNum, [borderElement, tBadge]);
+      log('TaskAdd', `insertElements result: ${JSON.stringify(result)}`);
+    } catch (err: any) {
+      logError('TaskAdd', `Task mark insertion failed: ${err.message}`);
+      // Non-fatal -- task was already created successfully
     }
   };
 

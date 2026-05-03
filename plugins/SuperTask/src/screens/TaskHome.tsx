@@ -12,7 +12,7 @@ import {
   FlatList,
   StyleSheet,
 } from 'react-native';
-import {PluginManager} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasks, getProjects, completeTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -46,8 +46,9 @@ export default function TaskHome({nav}: Props) {
   const [activeTab, setActiveTab] = useState('today');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [pageRef, setPageRef] = useState('');
 
-  // Load default tab from config on mount
+  // Load default tab from config and detect current page on mount
   useEffect(() => {
     loadConfig().then(config => {
       if (config.defaultTab) {
@@ -55,6 +56,24 @@ export default function TaskHome({nav}: Props) {
         setActiveTab(config.defaultTab);
       }
     });
+
+    // Detect current note/page for "This Page" section
+    (async () => {
+      try {
+        const fp = await PluginCommAPI.getCurrentFilePath();
+        const pn = await PluginCommAPI.getCurrentPageNum();
+        const filePath = fp?.result || '';
+        const pageNum = pn?.result ?? 0;
+        if (filePath) {
+          const fileName = filePath.split('/').pop()?.replace('.note', '') || '';
+          const ref = `From: ${fileName} p.${pageNum}`;
+          setPageRef(ref);
+          log('TaskHome', `Page context: ${ref}`);
+        }
+      } catch (e: any) {
+        log('TaskHome', `Page context detection failed: ${e.message}`);
+      }
+    })();
   }, []);
 
   const fetchData = useCallback(async (silent = false) => {
@@ -119,6 +138,35 @@ export default function TaskHome({nav}: Props) {
   };
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Tasks linked to the current note page
+  const pageTasks = pageRef
+    ? tasks.filter(t => t.description && t.description.includes(pageRef))
+    : [];
+
+  const renderThisPage = () => {
+    if (pageTasks.length === 0 || loading) return null;
+
+    return (
+      <View style={styles.thisPage}>
+        <View style={styles.thisPageHeader}>
+          <Text style={styles.thisPageTitle}>This Page</Text>
+          <Text style={styles.thisPageCount}>{pageTasks.length}</Text>
+        </View>
+        {pageTasks.map((task, i) => (
+          <View key={task.id}>
+            {i > 0 && <View style={styles.thisPageSeparator} />}
+            <TaskRow
+              task={task}
+              onComplete={handleComplete}
+              onPress={handleTaskPress}
+              showProject={projectMap[task.project_id]}
+            />
+          </View>
+        ))}
+      </View>
+    );
+  };
 
   // Build sections based on active tab
   const renderContent = () => {
@@ -308,6 +356,8 @@ export default function TaskHome({nav}: Props) {
 
       <TabBar tabs={TABS} activeTab={activeTab} onTabChange={(tab) => { log('TaskHome', `TAB changed: ${tab}`); setActiveTab(tab); }} />
 
+      {renderThisPage()}
+
       <View style={styles.body}>
         {renderContent()}
       </View>
@@ -430,6 +480,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#000000',
+  },
+  thisPage: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#000000',
+    backgroundColor: '#f8f8f8',
+  },
+  thisPageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  thisPageTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#000000',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  thisPageCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666666',
+  },
+  thisPageSeparator: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginLeft: 62,
   },
   body: {
     flex: 1,

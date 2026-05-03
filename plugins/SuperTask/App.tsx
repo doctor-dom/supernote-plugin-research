@@ -185,6 +185,7 @@ function App(): React.JSX.Element {
           initialContent={current.params?.initialContent}
           initialDescription={current.params?.initialDescription}
           captureMode={current.params?.captureMode}
+          noteContext={current.params?.noteContext}
         />
       )}
       {current.name === 'capture-lasso' && (
