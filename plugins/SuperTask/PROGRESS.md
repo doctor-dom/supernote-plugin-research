@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 5 in progress.** Task marking on notes built but needs EMR-to-pixel coordinate fix. Config redesigned with tabs. UX polish applied across screens.
+**Session 6 in progress.** EMR-to-pixel coord fix applied, debug mode toggle added. Ready for on-device test of task marking.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -14,8 +14,9 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 2: Task viewer | Done | Stack nav, tabbed home, project drill-down, detail/add, date picker |
 | 3: Post-action + config | Done | Add Another/Done/View Task flow, silent refresh, tabbed config |
 | 5: Lasso capture | Done | Handwriting OCR via recognizeElements, pre-fills TaskAdd |
-| 5b: Task marking | In progress | Dotted border + T badge on note page, needs coord fix |
+| 5b: Task marking | Built | EMR-to-pixel conversion applied, needs on-device test |
 | 5c: This Page | Built | TaskHome shows tasks linked to current note/page |
+| Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
 | 4: Subtasks | Next | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 7: Config persistence | Blocked | SDK has no writeFile, saveTextToFile not exposed to JS |
@@ -23,16 +24,14 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## To test on device
 
-- [ ] Task marking: fix EMR-to-pixel coordinate conversion, then test insertElements
-- [ ] "This Page" section in TaskHome (built, needs tasks with matching descriptions to appear)
-- [ ] Tabbed Config screen (Connections / Preferences tabs)
+- [ ] Task marking: EMR-to-pixel conversion applied, verify border + badge placement
+- [ ] "This Page" section in TaskHome (needs tasks with matching `From:` descriptions)
+- [ ] Debug mode toggle (Preferences tab, should hide Log buttons when OFF)
 
 ## To build next
 
-1. **Fix task marking coordinates** -- element maxX/maxY are in EMR space (20967, 15725), not pixels (1404, 1872). Need `PointUtils.emrPoint2Android()` or manual conversion before inserting mark elements.
-2. **Debug mode toggle** -- `debugMode` boolean in Config. OFF hides Log buttons, on-screen trace, HTTP uploads. Default OFF.
-3. **Phase 4: Subtasks** -- `parent_id` mapping in create/update. Subtask list in TaskDetail.
-4. **Phase 6: Doc capture** -- PDF text selection, similar to lasso but no OCR.
+1. **Phase 4: Subtasks** -- `parent_id` mapping in create/update. Subtask list in TaskDetail.
+2. **Phase 6: Doc capture** -- PDF text selection, similar to lasso but no OCR.
 
 ## Architecture
 
@@ -246,3 +245,20 @@ bash buildPlugin.sh                          # 2. Build
 - Works fine with isolated handwriting
 
 **PROGRESS.md restructured:** dashboard at top for quick scanning, detailed reference below
+
+### Session 6 -- 2026-05-02: Coord fix, debug toggle
+
+**EMR-to-pixel coordinate conversion:**
+- Lasso element bounds (maxX/maxY) are in EMR digitizer space, not pixels
+- Added manual conversion using SDK axis mapping: EMR X -> Android Y (scaled), EMR Y -> Android X (mirrored)
+- Supports both A5X (1404x1872, maxEMR 15819/11864) and A5X2 (1920x2560, maxEMR 21632/16224)
+- For stroke elements without explicit minX/minY, estimates bounds from recognized text length
+- Both EMR and pixel values logged in Capture trace for debugging
+- pageSize now passed through noteContext for TaskAdd debug logging
+
+**Debug mode toggle:**
+- `debugMode: false` default in config
+- Toggle in Config > Preferences tab (checkbox at bottom)
+- When OFF: hides Log buttons in TaskHome, TaskAdd, Capture; hides capture trace (shows "Processing..." instead); suppresses HTTP log uploads
+- When ON: everything works as before
+- Logs still collect in memory regardless of mode (available for error diagnostics)
