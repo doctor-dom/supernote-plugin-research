@@ -23,6 +23,7 @@ const DEFAULT_CONFIG = {
   defaultTab: 'today',
   postCreateAction: 'prompt', // 'prompt' (Add Another/Done) | 'auto-back'
   defaultScreen: 'task-home', // 'task-home' | 'last-used'
+  debugMode: false,
 };
 
 // In-memory config (survives within a session, lost on plugin restart)

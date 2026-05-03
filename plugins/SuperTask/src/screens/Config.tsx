@@ -58,6 +58,7 @@ export default function Config({onNavigate}: Props) {
   const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
   const [postCreateAction, setPostCreateAction] = useState('prompt');
   const [defaultScreen, setDefaultScreen] = useState('task-home');
+  const [debugMode, setDebugMode] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -72,6 +73,7 @@ export default function Config({onNavigate}: Props) {
       if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
+      if (config.debugMode !== undefined) setDebugMode(config.debugMode);
 
       if (config.apiToken) {
         try {
@@ -141,6 +143,7 @@ export default function Config({onNavigate}: Props) {
       defaultProjectId,
       postCreateAction,
       defaultScreen,
+      debugMode,
     });
     setSaveStatus('Saved!');
     setTimeout(() => setSaveStatus(''), 2000);
@@ -287,6 +290,23 @@ export default function Config({onNavigate}: Props) {
           </View>
         </View>
       )}
+
+      <View style={styles.divider} />
+
+      <View style={styles.section}>
+        <Text style={styles.label}>Debug Mode</Text>
+        <Pressable
+          style={styles.radioRow}
+          onPress={() => setDebugMode(!debugMode)}>
+          <Text style={styles.radioCheck}>
+            {debugMode ? '[X]' : '[  ]'}
+          </Text>
+          <Text style={styles.radioLabel}>Show Log buttons and capture trace</Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          When off, hides debug UI and disables log uploads.
+        </Text>
+      </View>
     </ScrollView>
   );
 

@@ -57,12 +57,14 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
   const [createdTask, setCreatedTask] = useState<any>(null);
 
   const [postCreateAction, setPostCreateAction] = useState('prompt');
+  const [debugMode, setDebugMode] = useState(false);
 
   useEffect(() => {
     log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId} captureMode=${captureMode || 'manual'} initialContent="${(initialContent || '').slice(0, 40)}"`);
     setConfigLoader(loadConfig);
     loadConfig().then(config => {
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
+      if (config.debugMode) setDebugMode(true);
     });
   }, []);
 
@@ -214,9 +216,11 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         <Text style={styles.headerTitle}>
           {captureMode === 'lasso' ? 'Captured Task' : captureMode === 'doc' ? 'From Document' : 'Add Task'}
         </Text>
-        <Pressable onPress={() => { log('TaskAdd', 'LOG pressed'); nav.resetTo('debug'); }}>
-          <Text style={styles.backText}>Log</Text>
-        </Pressable>
+        {debugMode ? (
+          <Pressable onPress={() => { log('TaskAdd', 'LOG pressed'); nav.resetTo('debug'); }}>
+            <Text style={styles.backText}>Log</Text>
+          </Pressable>
+        ) : <View />}
       </View>
 
       <View style={styles.section}>

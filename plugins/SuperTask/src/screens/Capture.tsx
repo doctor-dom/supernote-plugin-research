@@ -46,6 +46,7 @@ export default function Capture({mode, nav}: Props) {
   const [trace, setTrace] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
 
   const addTrace = (msg: string) => {
     const ts = new Date().toLocaleTimeString();
@@ -56,6 +57,9 @@ export default function Capture({mode, nav}: Props) {
   useEffect(() => {
     addTrace(`MOUNT mode=${mode}`);
     setConfigLoader(loadConfig);
+    loadConfig().then(config => {
+      if (config.debugMode) setDebugMode(true);
+    });
     runCapture();
   }, []);
 
@@ -323,21 +327,25 @@ export default function Capture({mode, nav}: Props) {
           }}>
             <Text style={styles.btnText}>Retry</Text>
           </Pressable>
-          <Pressable style={styles.btn} onPress={() => nav.resetTo('debug')}>
-            <Text style={styles.btnText}>Log</Text>
-          </Pressable>
+          {debugMode && (
+            <Pressable style={styles.btn} onPress={() => nav.resetTo('debug')}>
+              <Text style={styles.btnText}>Log</Text>
+            </Pressable>
+          )}
         </View>
-        <ScrollView style={styles.traceScroll}>
-          <Text style={styles.traceTitle}>Trace:</Text>
-          {trace.map((t, i) => (
-            <Text key={i} style={styles.traceLine}>{t}</Text>
-          ))}
-        </ScrollView>
+        {debugMode && (
+          <ScrollView style={styles.traceScroll}>
+            <Text style={styles.traceTitle}>Trace:</Text>
+            {trace.map((t, i) => (
+              <Text key={i} style={styles.traceLine}>{t}</Text>
+            ))}
+          </ScrollView>
+        )}
       </View>
     );
   }
 
-  // Loading state -- shows on-screen trace
+  // Loading state -- shows on-screen trace when debug mode is on
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -348,12 +356,20 @@ export default function Capture({mode, nav}: Props) {
           <Text style={styles.headerBtnText}>Close</Text>
         </Pressable>
       </View>
-      <ScrollView style={styles.traceScroll}>
-        {trace.map((t, i) => (
-          <Text key={i} style={styles.traceLine}>{t}</Text>
-        ))}
-        {!done && <Text style={styles.traceLine}>...</Text>}
-      </ScrollView>
+      {debugMode ? (
+        <ScrollView style={styles.traceScroll}>
+          {trace.map((t, i) => (
+            <Text key={i} style={styles.traceLine}>{t}</Text>
+          ))}
+          {!done && <Text style={styles.traceLine}>...</Text>}
+        </ScrollView>
+      ) : (
+        <View style={styles.traceScroll}>
+          <Text style={styles.traceLine}>
+            {done ? 'Done' : 'Processing...'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

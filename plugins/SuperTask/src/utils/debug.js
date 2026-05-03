@@ -19,6 +19,15 @@ try {
 const MAX_ENTRIES = 50;
 const entries = [];
 let _listener = null;
+let _debugMode = false;
+
+export function setDebugMode(enabled) {
+  _debugMode = enabled;
+}
+
+export function isDebugMode() {
+  return _debugMode;
+}
 
 export function log(tag, message) {
   const time = new Date().toLocaleTimeString();
@@ -58,8 +67,8 @@ export async function exportLog() {
     ? `--- SuperTask Log ${timestamp} ---\n\n${entries.join('\n')}`
     : '(no log entries)';
 
-  // Method 1: POST to local dev server
-  if (_debugServerUrl) {
+  // Method 1: POST to local dev server (only when debug mode is on)
+  if (_debugServerUrl && _debugMode) {
     try {
       const resp = await fetch(_debugServerUrl, {
         method: 'POST',

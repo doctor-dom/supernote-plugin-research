@@ -47,6 +47,7 @@ export default function TaskHome({nav}: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pageRef, setPageRef] = useState('');
+  const [debugMode, setDebugMode] = useState(false);
 
   // Load default tab from config and detect current page on mount
   useEffect(() => {
@@ -55,6 +56,7 @@ export default function TaskHome({nav}: Props) {
         log('TaskHome', `Setting default tab from config: ${config.defaultTab}`);
         setActiveTab(config.defaultTab);
       }
+      if (config.debugMode) setDebugMode(true);
     });
 
     // Detect current note/page for "This Page" section
@@ -345,9 +347,11 @@ export default function TaskHome({nav}: Props) {
           <Pressable style={styles.headerButton} onPress={handleAddTask}>
             <Text style={styles.headerButtonText}>+</Text>
           </Pressable>
-          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.resetTo('debug'); }}>
-            <Text style={styles.headerButtonText}>Log</Text>
-          </Pressable>
+          {debugMode && (
+            <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.resetTo('debug'); }}>
+              <Text style={styles.headerButtonText}>Log</Text>
+            </Pressable>
+          )}
           <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); PluginManager.closePluginView(); }}>
             <Text style={styles.headerButtonText}>Close</Text>
           </Pressable>

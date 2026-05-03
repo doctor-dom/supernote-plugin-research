@@ -18,7 +18,8 @@ import TaskDetail from './src/screens/TaskDetail';
 import TaskAdd from './src/screens/TaskAdd';
 import Capture from './src/screens/Capture';
 import Config from './src/screens/Config';
-import {log, logError, getEntries, setListener, exportLog} from './src/utils/debug';
+import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
+import {loadConfig} from './src/utils/config';
 
 type ScreenEntry = {
   name: string;
@@ -70,6 +71,9 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     setListener(setDebugLog);
+    loadConfig().then(config => {
+      if (config.debugMode) setDebugMode(true);
+    });
 
     const initial = global.__superTaskButtonId;
     log('App', `MOUNT -- initial buttonId=${JSON.stringify(initial)} screen=${screenStack[0].name}`);
