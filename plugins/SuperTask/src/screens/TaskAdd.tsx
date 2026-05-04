@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginNoteAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginNoteAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -111,35 +111,57 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const insertTaskMark = async (taskId: string) => {
     if (!noteContext) return;
-    const {bounds} = noteContext;
+    const {filePath, pageNum, bounds} = noteContext;
     log('TaskAdd', `Inserting task mark: bounds=${JSON.stringify(bounds)} taskId=${taskId}`);
 
     try {
       await PluginNoteAPI.saveCurrentNote();
 
-      // Place bordered "T" badge to the left of the captured handwriting
-      const badgeLeft = Math.max(0, bounds.left - 30);
-      const badgeTop = bounds.top;
-      const result = await PluginNoteAPI.insertText({
-        textContentFull: 'T',
-        textRect: {
-          left: badgeLeft,
-          top: badgeTop,
-          right: badgeLeft + 26,
-          bottom: badgeTop + 26,
+      // Try Title element (black bg header style) via insertElements
+      const markLeft = Math.max(0, bounds.left - 4);
+      const markTop = bounds.bottom + 4;
+      const markWidth = Math.max(120, bounds.right - bounds.left + 8);
+      const markHeight = 36;
+
+      const titleElement = {
+        type: 100, // TYPE_TITLE
+        layerNum: 0,
+        title: {
+          X: markLeft,
+          Y: markTop,
+          width: markWidth,
+          height: markHeight,
+          style: 1, // black background, white text
         },
-        fontSize: 14,
-        textBold: 1,
-        textAlign: 1,
-        textFrameStyle: 3, // stroke border
-        textEditable: 1,
-        textItalics: 0,
-        textFrameWidthType: 0,
-      });
-      log('TaskAdd', `insertText result: ${JSON.stringify(result)}`);
+      };
+
+      log('TaskAdd', `Trying insertElements Title: X=${markLeft} Y=${markTop} w=${markWidth} h=${markHeight}`);
+      const result = await PluginFileAPI.insertElements(filePath, pageNum, [titleElement]);
+      log('TaskAdd', `insertElements Title result: ${JSON.stringify(result)}`);
+
+      if (!result?.success) {
+        // Fallback: prominent text banner below handwriting
+        log('TaskAdd', 'Title failed, falling back to insertText');
+        const textResult = await PluginNoteAPI.insertText({
+          textContentFull: `Task: ${content.trim().slice(0, 30)}`,
+          textRect: {
+            left: markLeft,
+            top: markTop,
+            right: markLeft + markWidth,
+            bottom: markTop + 32,
+          },
+          fontSize: 16,
+          textBold: 1,
+          textAlign: 0,
+          textFrameStyle: 3,
+          textEditable: 1,
+          textItalics: 0,
+          textFrameWidthType: 0,
+        });
+        log('TaskAdd', `insertText fallback result: ${JSON.stringify(textResult)}`);
+      }
     } catch (err: any) {
       logError('TaskAdd', `Task mark insertion failed: ${err.message}`);
-      // Non-fatal -- task was already created successfully
     }
   };
 
