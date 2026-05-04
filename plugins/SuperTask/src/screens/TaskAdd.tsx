@@ -117,14 +117,16 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     try {
       await PluginNoteAPI.saveCurrentNote();
 
-      // Use insertText (proven on-device) instead of insertElements
+      // Place bordered "T" badge to the left of the captured handwriting
+      const badgeLeft = Math.max(0, bounds.left - 30);
+      const badgeTop = bounds.top;
       const result = await PluginNoteAPI.insertText({
         textContentFull: 'T',
         textRect: {
-          left: Math.max(0, bounds.left - 30),
-          top: bounds.top,
-          right: Math.max(4, bounds.left - 4),
-          bottom: bounds.top + 26,
+          left: badgeLeft,
+          top: badgeTop,
+          right: badgeLeft + 26,
+          bottom: badgeTop + 26,
         },
         fontSize: 14,
         textBold: 1,

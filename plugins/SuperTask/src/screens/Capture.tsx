@@ -221,42 +221,59 @@ export default function Capture({mode, nav}: Props) {
         }
         addTrace(`EMR bounds: maxX=${emrMaxX} maxY=${emrMaxY} minX=${emrMinX === Infinity ? 'none' : emrMinX} minY=${emrMinY === Infinity ? 'none' : emrMinY}`);
 
-        // Log first element structure for debugging
-        const el0 = elements.result[0];
-        addTrace(`Element[0] keys: ${Object.keys(el0).join(',')}`);
-        addTrace(`Element[0] maxX=${el0.maxX} maxY=${el0.maxY} type=${el0.type}`);
-
-        // Convert EMR coordinates to pixel coordinates
-        // EMR X axis -> Android Y (direct scale)
-        // EMR Y axis -> Android X (mirrored: width - 1 - scaled)
-        // Known EMR maximums for exact page sizes; ratio fallback for others
+        // maxX/maxY on lasso elements are page-level constants, not stroke positions.
+        // Read actual stroke point data to compute real bounding box.
         const {maxX: realMaxX, maxY: realMaxY} = getEmrMaximums(pageSize, emrMaxX, emrMaxY);
-        const scaleX = realMaxX / (pageSize.height - 1); // EMR X per pixel Y
-        const scaleY = realMaxY / (pageSize.width - 1);  // EMR Y per pixel X
+        const scaleX = realMaxX / (pageSize.height - 1);
+        const scaleY = realMaxY / (pageSize.width - 1);
+        addTrace(`EMR scale: ${scaleX.toFixed(3)}/${scaleY.toFixed(3)} (realMax ${realMaxX}/${realMaxY})`);
 
-        // Max EMR point -> pixel left (from maxY) and pixel bottom (from maxX)
-        const pxLeft = Math.round(pageSize.width - 1 - emrMaxY / scaleY);
-        const pxBottom = Math.round(emrMaxX / scaleX);
+        // Read first and last stroke points from each element to find real bounds
+        let sMinX = Infinity, sMinY = Infinity, sMaxX = 0, sMaxY = 0;
+        let pointsRead = 0;
+        for (const el of elements.result) {
+          if (!el.stroke?.points?._size) continue;
+          try {
+            const pts = el.stroke.points;
+            const first = await pts.get(0);
+            const last = await pts.get(pts._size - 1);
+            for (const pt of [first, last]) {
+              if (pt?.x !== undefined && pt?.y !== undefined) {
+                // These are EMR coordinates
+                if (pt.x < sMinX) sMinX = pt.x;
+                if (pt.x > sMaxX) sMaxX = pt.x;
+                if (pt.y < sMinY) sMinY = pt.y;
+                if (pt.y > sMaxY) sMaxY = pt.y;
+                pointsRead++;
+              }
+            }
+          } catch (e: any) {
+            addTrace(`Stroke point read error: ${e.message}`);
+          }
+        }
+        addTrace(`Stroke points: ${pointsRead} pts from ${elements.result.length} els, EMR x=${sMinX}-${sMaxX} y=${sMinY}-${sMaxY}`);
 
-        let pxTop: number, pxRight: number;
-        if (emrMinX !== Infinity && emrMinY !== Infinity) {
-          // Have actual min values from sub-objects
-          pxRight = Math.round(pageSize.width - 1 - emrMinY / scaleY);
-          pxTop = Math.round(emrMinX / scaleX);
+        if (pointsRead > 0 && sMinX !== Infinity) {
+          // Convert EMR stroke bounds to pixel coordinates
+          // EMR x -> pixel y (direct), EMR y -> pixel x (mirrored)
+          const pxLeft = Math.round(pageSize.width - 1 - sMaxY / scaleY);
+          const pxTop = Math.round(sMinX / scaleX);
+          const pxRight = Math.round(pageSize.width - 1 - sMinY / scaleY);
+          const pxBottom = Math.round(sMaxX / scaleX);
+          bounds = {
+            left: Math.min(pxLeft, pxRight),
+            top: Math.min(pxTop, pxBottom),
+            right: Math.max(pxLeft, pxRight),
+            bottom: Math.max(pxTop, pxBottom),
+          };
         } else {
-          // Estimate: ~60px tall, width based on recognized text length
-          const estWidth = Math.max(200, Math.min(800, (content?.length || 15) * 25));
-          pxTop = Math.max(0, pxBottom - 60);
-          pxRight = Math.min(pageSize.width - 1, pxLeft + estWidth);
+          // Fallback: couldn't read points, skip marking
+          addTrace('No stroke points readable, skipping bounds');
         }
 
-        bounds = {
-          left: Math.min(pxLeft, pxRight),
-          top: Math.min(pxTop, pxBottom),
-          right: Math.max(pxLeft, pxRight),
-          bottom: Math.max(pxTop, pxBottom),
-        };
-        addTrace(`Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom} (page ${pageSize.width}x${pageSize.height}, emrMax ${realMaxX}/${realMaxY})`);
+        if (bounds) {
+          addTrace(`Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom}`);
+        }
       } catch (e: any) {
         addTrace(`Bounds calc failed: ${e.message}`);
       }
