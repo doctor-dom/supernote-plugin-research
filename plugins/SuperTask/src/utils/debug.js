@@ -67,8 +67,8 @@ export async function exportLog() {
     ? `--- SuperTask Log ${timestamp} ---\n\n${entries.join('\n')}`
     : '(no log entries)';
 
-  // Method 1: POST to local dev server (only when debug mode is on)
-  if (_debugServerUrl && _debugMode) {
+  // Method 1: POST to local dev server (always try when explicitly called)
+  if (_debugServerUrl) {
     try {
       const resp = await fetch(_debugServerUrl, {
         method: 'POST',
