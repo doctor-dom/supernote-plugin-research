@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginNoteAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginNoteAPI, PluginCommAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -59,6 +59,8 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const [postCreateAction, setPostCreateAction] = useState('prompt');
   const [debugMode, setDebugMode] = useState(false);
+  const [markingAsText, setMarkingAsText] = useState(false);
+  const [markAsTextDone, setMarkAsTextDone] = useState(false);
 
   useEffect(() => {
     log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId} captureMode=${captureMode || 'manual'} initialContent="${(initialContent || '').slice(0, 40)}"`);
@@ -204,6 +206,53 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     }
   };
 
+  const handleMarkAsText = async () => {
+    if (!noteContext) return;
+    log('TaskAdd', 'MARK AS TEXT pressed');
+    setMarkingAsText(true);
+
+    try {
+      await PluginNoteAPI.saveCurrentNote();
+      log('TaskAdd', 'saveCurrentNote done, deleting lasso elements...');
+
+      const deleteResult = await PluginCommAPI.deleteLassoElements();
+      log('TaskAdd', `deleteLassoElements result: ${JSON.stringify(deleteResult)}`);
+
+      // SDK refresh delay after deletion (inherent 1-2s, pad to 1.5s)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Insert typed text at the same position as the handwriting
+      const {bounds} = noteContext;
+      const textWidth = Math.max(200, bounds.right - bounds.left + 16);
+      const textHeight = Math.max(40, bounds.bottom - bounds.top + 8);
+
+      log('TaskAdd', `insertText: l=${bounds.left} t=${bounds.top} w=${textWidth} h=${textHeight} text="${content.trim().slice(0, 40)}"`);
+      const insertResult = await PluginNoteAPI.insertText({
+        textContentFull: content.trim(),
+        textRect: {
+          left: bounds.left,
+          top: bounds.top,
+          right: bounds.left + textWidth,
+          bottom: bounds.top + textHeight,
+        },
+        fontSize: 20,
+        textBold: 0,
+        textAlign: 0,
+        textFrameStyle: 3,
+        textEditable: 1,
+        textItalics: 0,
+        textFrameWidthType: 0,
+      });
+      log('TaskAdd', `insertText result: ${JSON.stringify(insertResult)}`);
+
+      setMarkAsTextDone(true);
+    } catch (err: any) {
+      logError('TaskAdd', `Mark as text failed: ${err.message}`);
+    } finally {
+      setMarkingAsText(false);
+    }
+  };
+
   return (
     <View style={styles.wrapper}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -299,6 +348,16 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       <View style={styles.overlayCenter}>
         <View style={styles.overlayModal}>
           <Text style={styles.overlayText}>Task added!</Text>
+          {captureMode === 'lasso' && noteContext && (
+            <Pressable
+              style={[styles.markAsTextButton, markAsTextDone && styles.markAsTextButtonDone]}
+              onPress={handleMarkAsText}
+              disabled={markingAsText || markAsTextDone}>
+              <Text style={[styles.markAsTextButtonText, markAsTextDone && styles.markAsTextButtonTextDone]}>
+                {markAsTextDone ? 'Marked as text' : markingAsText ? 'Replacing...' : 'Mark as Text'}
+              </Text>
+            </Pressable>
+          )}
           <View style={styles.overlayButtons}>
             <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
               <Text style={styles.overlayButtonText}>Add Another</Text>
@@ -427,6 +486,28 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#000000',
+  },
+  markAsTextButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    borderStyle: 'dashed',
+  },
+  markAsTextButtonDone: {
+    borderStyle: 'solid',
+    backgroundColor: '#f0f0f0',
+  },
+  markAsTextButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  markAsTextButtonTextDone: {
+    color: '#666666',
   },
   overlayButtons: {
     flexDirection: 'row',
