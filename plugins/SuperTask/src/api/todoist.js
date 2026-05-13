@@ -30,24 +30,45 @@ async function todoistFetch(path, options = {}) {
   const method = options.method || 'GET';
   log('API', `${method} ${url}`);
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${config.apiToken}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  const maxRetries = 2;
+  let lastError;
 
-  log('API', `Response: ${response.status}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = attempt * 1500;
+      log('API', `Retry ${attempt}/${maxRetries} after ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Todoist ${response.status}: ${text}`);
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    log('API', `Response: ${response.status}`);
+
+    // Retry on 5xx server errors
+    if (response.status >= 500) {
+      const text = await response.text();
+      lastError = new Error(`Todoist ${response.status}: ${text}`);
+      if (attempt < maxRetries) continue;
+      throw lastError;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist ${response.status}: ${text}`);
+    }
+
+    if (response.status === 204) return null;
+    return response.json();
   }
 
-  if (response.status === 204) return null;
-  return response.json();
+  throw lastError;
 }
 
 /**

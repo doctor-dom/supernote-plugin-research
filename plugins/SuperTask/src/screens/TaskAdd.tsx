@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginNoteAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginNoteAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -32,6 +32,7 @@ type NoteContext = {
   pageNum: number;
   bounds: {left: number; top: number; right: number; bottom: number};
   pageSize?: {width: number; height: number};
+  titleApplied?: boolean;
 };
 
 type Props = {
@@ -111,55 +112,64 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const insertTaskMark = async (taskId: string) => {
     if (!noteContext) return;
-    const {filePath, pageNum, bounds} = noteContext;
-    log('TaskAdd', `Inserting task mark: bounds=${JSON.stringify(bounds)} taskId=${taskId}`);
+    const {bounds, titleApplied} = noteContext;
+    log('TaskAdd', `Inserting task mark: bounds=${JSON.stringify(bounds)} taskId=${taskId} titleApplied=${titleApplied}`);
 
     try {
       await PluginNoteAPI.saveCurrentNote();
 
-      // Try Title element (black bg header style) via insertElements
-      const markLeft = Math.max(0, bounds.left - 4);
-      const markTop = bounds.bottom + 4;
-      const markWidth = Math.max(120, bounds.right - bounds.left + 8);
-      const markHeight = 36;
+      if (titleApplied) {
+        // Title header already applied -- add a "T" badge to the left as task indicator
+        const badgeW = 32;
+        const badgeH = Math.min(32, bounds.bottom - bounds.top + 4);
+        const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
+        const badgeTop = bounds.top;
 
-      const titleElement = {
-        type: 100, // TYPE_TITLE
-        layerNum: 0,
-        title: {
-          X: markLeft,
-          Y: markTop,
-          width: markWidth,
-          height: markHeight,
-          style: 1, // black background, white text
-        },
-      };
-
-      log('TaskAdd', `Trying insertElements Title: X=${markLeft} Y=${markTop} w=${markWidth} h=${markHeight}`);
-      const result = await PluginFileAPI.insertElements(filePath, pageNum, [titleElement]);
-      log('TaskAdd', `insertElements Title result: ${JSON.stringify(result)}`);
-
-      if (!result?.success) {
-        // Fallback: prominent text banner below handwriting
-        log('TaskAdd', 'Title failed, falling back to insertText');
-        const textResult = await PluginNoteAPI.insertText({
-          textContentFull: `Task: ${content.trim().slice(0, 30)}`,
+        log('TaskAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
+        const badgeResult = await PluginNoteAPI.insertText({
+          textContentFull: 'T',
           textRect: {
-            left: markLeft,
-            top: markTop,
-            right: markLeft + markWidth,
-            bottom: markTop + 32,
+            left: badgeLeft,
+            top: badgeTop,
+            right: badgeLeft + badgeW,
+            bottom: badgeTop + badgeH,
           },
-          fontSize: 16,
+          fontSize: 18,
           textBold: 1,
-          textAlign: 0,
+          textAlign: 1,
           textFrameStyle: 3,
-          textEditable: 1,
+          textEditable: 0,
           textItalics: 0,
           textFrameWidthType: 0,
         });
-        log('TaskAdd', `insertText fallback result: ${JSON.stringify(textResult)}`);
+        log('TaskAdd', `T badge result: ${JSON.stringify(badgeResult)}`);
+        return;
       }
+
+      // Fallback (no lasso title): text banner below handwriting with border
+      const markLeft = Math.max(0, bounds.left - 4);
+      const markTop = bounds.bottom + 6;
+      const markWidth = Math.max(200, bounds.right - bounds.left + 16);
+      const markHeight = 40;
+
+      log('TaskAdd', `insertText fallback: left=${markLeft} top=${markTop} w=${markWidth} h=${markHeight}`);
+      const textResult = await PluginNoteAPI.insertText({
+        textContentFull: `Task: ${content.trim().slice(0, 40)}`,
+        textRect: {
+          left: markLeft,
+          top: markTop,
+          right: markLeft + markWidth,
+          bottom: markTop + markHeight,
+        },
+        fontSize: 20,
+        textBold: 1,
+        textAlign: 0,
+        textFrameStyle: 3,
+        textEditable: 1,
+        textItalics: 0,
+        textFrameWidthType: 0,
+      });
+      log('TaskAdd', `insertText fallback result: ${JSON.stringify(textResult)}`);
     } catch (err: any) {
       logError('TaskAdd', `Task mark insertion failed: ${err.message}`);
     }

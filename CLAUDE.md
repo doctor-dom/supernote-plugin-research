@@ -22,6 +22,20 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 - **No native modules needed for pure JS plugins** -- build skips Gradle entirely, runs in under a minute
 - **Install on device** -- copy `.snplg` to MyStyle/, then Settings > Apps > Plugins > Install
 
+### Problem-solving protocol: check the SDK source first
+When stuck on how to accomplish something on-device (inserting elements, marking strokes, navigating, etc.), **read the SDK TypeScript source** in `src/` before guessing or trying undocumented approaches. The SDK source has JSDoc comments with parameter docs, enum values, style constants, and validation logic that aren't in the official docs. Examples of wins from this:
+- `PluginNoteAPI.setLassoTitle({style: 1})` -- discovered by reading `src/sdk/PluginNoteAPI.ts`, not documented elsewhere
+- `setLassoStrokeLink` params and link style/type enums -- all in the source
+- `insertText` full parameter list including `textFrameStyle`, `textFrameWidth` -- from VerifyUtils schema
+- Element type constants and their sub-object schemas -- from `src/model/Element.ts` and `src/sdk/utils/VerifyUtils.ts`
+
+Key SDK source files to check:
+- `src/sdk/PluginNoteAPI.ts` -- note-level operations (insertText, setLassoTitle, setLassoStrokeLink, save)
+- `src/sdk/PluginFileAPI.ts` -- file-level operations (insertElements, getElements, getPageSize)
+- `src/sdk/PluginCommAPI.ts` -- comm operations (getLassoElements, recognizeElements, getCurrentFilePath)
+- `src/sdk/utils/VerifyUtils.ts` -- parameter validation schemas for all element types
+- `src/model/Element.ts` -- element type constants, data models, ElementDataAccessor
+
 ### Key SDK patterns
 - `PluginManager.init()` must be called at startup
 - `registerButton(type, appTypes, config)` -- type 1 = toolbar, type 2 = lasso bar, type 3 = selection bar

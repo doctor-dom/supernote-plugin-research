@@ -13,7 +13,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginCommAPI, PluginFileAPI, PluginDocAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI, PluginNoteAPI, PluginFileAPI, PluginDocAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -278,12 +278,23 @@ export default function Capture({mode, nav}: Props) {
         addTrace(`Bounds calc failed: ${e.message}`);
       }
 
+      // Apply title styling to lasso strokes while context is still active
+      let titleApplied = false;
+      try {
+        addTrace('Trying setLassoTitle style=1 (black background)...');
+        const titleResult = await PluginNoteAPI.setLassoTitle({style: 1});
+        addTrace(`setLassoTitle result: ${JSON.stringify(titleResult)}`);
+        titleApplied = !!titleResult?.success;
+      } catch (e: any) {
+        addTrace(`setLassoTitle failed: ${e.message}`);
+      }
+
       // Build source context from filePath/pageNum we already fetched
       const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
       const description = `From: ${fileName} p.${pageNum}`;
-      addTrace(`Done: "${content.slice(0, 40)}" -- ${description}`);
+      addTrace(`Done: "${content.slice(0, 40)}" -- ${description} titleApplied=${titleApplied}`);
 
-      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize} : null;
+      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, titleApplied} : null;
       return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureLasso ERROR: ${err.message}`);

@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 6 in progress.** EMR-to-pixel coord fix applied, debug mode toggle added. Ready for on-device test of task marking.
+**Session 7 complete.** setLassoTitle confirmed working (black header). Title pollutes TOC though, so switching to setLassoStrokeLink (dashed border). Design docs written for task linking/dashboard and capture workflow. Todoist API retry logic added.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -14,24 +14,27 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 2: Task viewer | Done | Stack nav, tabbed home, project drill-down, detail/add, date picker |
 | 3: Post-action + config | Done | Add Another/Done/View Task flow, silent refresh, tabbed config |
 | 5: Lasso capture | Done | Handwriting OCR via recognizeElements, pre-fills TaskAdd |
-| 5b: Task marking | Built | EMR-to-pixel conversion applied, needs on-device test |
-| 5c: This Page | Built | TaskHome shows tasks linked to current note/page |
+| 5b: Task marking | Building | setLassoTitle works but pollutes TOC. Switching to setLassoStrokeLink (dashed border + T badge). See design docs. |
+| 5c: This Page | Done | Confirmed working on-device (shows tasks for current note/page) |
+| 5d: Capture workflow | Designed | Post-action "Mark as Text" to replace handwriting with typed text. See `docs/design-capture-workflow.md` |
+| 5e: Quick-add overlay | Designed | Compact pop-up for lasso capture instead of full-screen. Proven approach from sn-calc plugin (transparent root + centered panel). |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
-| 4: Subtasks | Next | parent_id support, subtask list in detail view |
+| 9: Task dashboard | Designed | Interlinked SuperTask.note as central task hub. Bidirectional links between source notes and dashboard. See `docs/design-task-linking.md` |
+| 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 7: Config persistence | Blocked | SDK has no writeFile, saveTextToFile not exposed to JS |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
-
-## To test on device
-
-- [ ] Task marking: EMR-to-pixel conversion applied, verify border + badge placement
-- [ ] "This Page" section in TaskHome (needs tasks with matching `From:` descriptions)
-- [ ] Debug mode toggle (Preferences tab, should hide Log buttons when OFF)
+| Offline mode | Future | Queue tasks locally, sync to Todoist when wifi available |
 
 ## To build next
 
-1. **Phase 4: Subtasks** -- `parent_id` mapping in create/update. Subtask list in TaskDetail.
-2. **Phase 6: Doc capture** -- PDF text selection, similar to lasso but no OCR.
+Build one at a time, test each on-device before moving to the next:
+
+1. **Task marking: setLassoStrokeLink** -- replace setLassoTitle with dashed border (style 2) + T badge matching `docs/task-mark-mockup.svg`. Test that lasso context works for stroke links same as it did for titles.
+2. **Dashboard API probing** -- test createNote, insertTextLink, replaceElements, openFilePath, getNoteSystemTemplates, insertNotePage in a diagnostic build. Results determine what's feasible for the dashboard.
+3. **Mark as Text post-action** -- add button to post-create overlay. Deletes handwriting strokes, inserts typed text at same position, leaves it lasso'd for user editing.
+4. **Quick-add overlay** -- lasso capture opens compact pop-up panel (transparent root + centered panel pattern). Toolbar button keeps full-screen TaskHome.
+5. **Dashboard v1** -- based on API test results, build single-page dashboard with bidirectional links.
 
 ## Architecture
 
@@ -147,25 +150,77 @@ bash buildPlugin.sh                          # 2. Build
 - `keyboardShouldPersistTaps="handled"` needed on ScrollViews with TextInputs
 - Position-absolute overlays work well for status messages (no layout shift)
 
-### Element coordinates (Session 5)
-- Lasso element `maxX`/`maxY` are in **EMR (digitizer) coordinates**, not pixels
-- Example: maxX=20967, maxY=15725 on a 1404x1872 pixel page
+### Element coordinates (Sessions 5-6)
+- Lasso element `maxX`/`maxY` are **page-level constants, NOT stroke positions**
+  - All elements return identical values (e.g., maxX=20967, maxY=15725 for all 6-25 elements)
+  - These are the EMR digitizer boundary, not individual stroke extents
+- **Actual stroke positions** are in `element.stroke.points` (an `ElementDataAccessor`)
+  - Async lazy loader: `await element.stroke.points.get(index)` returns `{x, y}` in EMR coords
+  - `element.stroke.points._size` gives point count
+  - Read first/last point of each stroke to compute bounding box
+  - Confirmed working on-device: returns real EMR coordinates that vary by stroke position
+- EMR-to-pixel conversion (axis mapping):
+  - EMR X axis -> Android Y (direct scale: `pixelY = emrX / scaleX`)
+  - EMR Y axis -> Android X (mirrored: `pixelX = pageWidth - 1 - emrY / scaleY`)
+  - `scaleX = realMaxX / (pageHeight - 1)`, `scaleY = realMaxY / (pageWidth - 1)`
+- **Device EMR range detection**: page size alone is NOT reliable for determining EMR maximums
+  - Nomad reports page size 1404x1872 but uses A5X2-range EMR values (max 21632/16224)
+  - Detect from actual element data: if any EMR value > 15819, use A5X2 range
+  - Normal range: maxX=15819, maxY=11864 (for 1404x1872)
+  - A5X2 range: maxX=21632, maxY=16224 (for 1920x2560)
 - Element keys from lasso: `stroke, angles, contoursSrc, status, numInPage, recognizeResult, maxY, thickness, pageNum, maxX, layerNum, type, uuid`
-- Stroke elements (type=0) have no explicit minX/minY -- only maxX/maxY
-- Must convert to pixel coordinates before calling `insertElements`
-- SDK has `PointUtils.emrPoint2Android()` -- needs testing
+- Stroke keys: `recognPoints, markPenDirection, penColor, eraseLineTrailNums, pressures, penType, flagDraw, points`
 
 ### OCR sensitivity (Session 5)
 - `recognizeElements` returns `success: false` when lasso captures strokes from adjacent lines
 - Even reasonable visual distance between lines can cause failure if stroke elements overlap
 - Works fine with isolated handwriting (13 elements, clear separation)
 
-### Insertable element types (Session 5)
-- **Link (600)**: X, Y, width, height, style (0=solid underline, 1=solid border, 2=dashed border), linkType (4=URL), destPath
-- **Text (500)**: textContentFull, textRect {left, top, right, bottom}, fontSize, textBold, textFrameStyle (3=stroke border)
-- **Title (100)**: X, Y, width, height, style (1=black bg, 2=light gray, 3=dark gray, 4=shadow), controlTrailNums
-- **Geometry (700)**: type (straightLine, GEO_circle, GEO_ellipse, GEO_polygon), points, penColor, penWidth
-- All text/link/title elements must have `layerNum: 0`
+### Inserting elements on note pages (Sessions 5-7)
+
+**`PluginNoteAPI.insertText()` -- WORKS (confirmed on-device)**
+- Inserts on CURRENT note page (no filePath/page params needed)
+- Uses pixel coordinates: `textRect: {left, top, right, bottom}`
+- Required: `textContentFull` (non-empty string), `textRect`
+- Optional: `fontSize`, `textBold`, `textAlign`, `textFrameStyle` (3=stroke border), `textEditable`, `textItalics`, `textFrameWidthType`
+- Works even while plugin UI is showing (note is underneath)
+
+**`PluginNoteAPI.setLassoTitle({style})` -- WORKS but pollutes TOC**
+- Applies title styling to lasso-selected strokes while lasso context is active
+- Styles: 0=remove, 1=black background, 2=light gray, 3=dark gray, 4=shadow
+- Confirmed on-device: `{result: true, success: true}` with style 1
+- **Problem**: Title elements show up in Supernote's Table of Contents. Not viable for task marking.
+
+**`PluginNoteAPI.setLassoStrokeLink({destPath, destPage, style, linkType})` -- UNTESTED**
+- Makes lasso-selected strokes into a tappable link with visible border
+- Styles: 0=solid underline, 1=solid border, 2=dashed border
+- Link types: 0=note page, 1=note file, 2=document, 3=image, 4=URL
+- Should not affect TOC (links are not titles)
+- Must be called while lasso context is active (same timing as setLassoTitle)
+
+**`PluginNoteAPI.insertTextLink()` -- UNTESTED**
+- Inserts a tappable text link element on current note page
+- Params: destPath, destPage, style, linkType, rect, fontSize, fullText, showText, isItalic
+- Key for dashboard bidirectional linking
+
+**`PluginFileAPI.insertElements()` -- FAILS with error 106**
+- JS-side schema validation passes, but native layer rejects with code 106: "Invalid API parameters"
+- Tested with Link (600), Text (500), AND Title (100) element types -- ALL fail
+- Error 107 (JS validation) fires for negative coordinates; 106 is native-side rejection
+
+**Element type schemas (from SDK VerifyUtils.ts):**
+- **Link (600)**: category (required), X/Y/width/height (required, min:0), style (required), linkType (required), destPath, fullText, showText
+- **Text (500)**: textContentFull (required, nonEmpty), textRect (required, non-zero-area), fontSize (min:1), textBold, textAlign, textFrameStyle, textEditable
+- **Title (100)**: X/Y/width/height (min:0), style, controlTrailNums -- NO required fields in title sub-object
+- **Geometry (700)**: validated via GeometrySchema
+- All elements need `layerNum: 0` for the main drawing layer
+
+### Overlay UI pattern (Session 7)
+- Full-screen takeover is NOT required. Community plugins (sn-calc) achieve pop-up overlays with same `showType: 1`
+- Technique: root component `flex: 1, backgroundColor: 'transparent'`, content in a fixed-width centered panel
+- Outer Pressable with `onPress={closePluginView}` for tap-outside-to-dismiss
+- Inner panel `stopPropagation()` to prevent dismiss on panel taps
+- Supernote renders plugin RN view with transparent background, note page visible underneath
 
 ### Config persistence (deferred)
 
@@ -246,19 +301,65 @@ bash buildPlugin.sh                          # 2. Build
 
 **PROGRESS.md restructured:** dashboard at top for quick scanning, detailed reference below
 
-### Session 6 -- 2026-05-02: Coord fix, debug toggle
-
-**EMR-to-pixel coordinate conversion:**
-- Lasso element bounds (maxX/maxY) are in EMR digitizer space, not pixels
-- Added manual conversion using SDK axis mapping: EMR X -> Android Y (scaled), EMR Y -> Android X (mirrored)
-- Supports both A5X (1404x1872, maxEMR 15819/11864) and A5X2 (1920x2560, maxEMR 21632/16224)
-- For stroke elements without explicit minX/minY, estimates bounds from recognized text length
-- Both EMR and pixel values logged in Capture trace for debugging
-- pageSize now passed through noteContext for TaskAdd debug logging
+### Session 6 -- 2026-05-02/03: Coord fix, debug toggle, task marking iteration
 
 **Debug mode toggle:**
 - `debugMode: false` default in config
 - Toggle in Config > Preferences tab (checkbox at bottom)
-- When OFF: hides Log buttons in TaskHome, TaskAdd, Capture; hides capture trace (shows "Processing..." instead); suppresses HTTP log uploads
+- When OFF: hides Log buttons in TaskHome, TaskAdd, Capture; hides capture trace (shows "Processing..." instead)
 - When ON: everything works as before
 - Logs still collect in memory regardless of mode (available for error diagnostics)
+- Bug fix: `exportLog()` was gated on `_debugMode` flag which was only set at app mount. Toggling debug mode in Config mid-session didn't update the flag. Fixed by always allowing explicit Upload Log.
+
+**EMR coordinate investigation (5 on-device test builds):**
+1. Initial: element maxX/maxY assumed to be stroke positions. Computed pixel bounds with negative values (left=-457). `insertElements` error 107: "link.X must be >= 0"
+2. Discovered device (Nomad) uses A5X2 EMR range despite 1404x1872 page size. Fixed by detecting range from actual EMR values instead of page size. Bounds now positive but `insertElements` error 106: "Invalid API parameters" from native layer.
+3. Switched from `insertElements` (Link+Text) to `insertText` (proven working from debug log export). API returns success=true, but "T" badge placed at bottom of page (y=1753) while handwriting was elsewhere.
+4. Key discovery: **element maxX/maxY are page-level constants, identical across all elements** (20967/15725 for all 6-25 elements). They're the EMR page boundary, not stroke positions.
+5. Read actual stroke point data via `ElementDataAccessor`: `await el.stroke.points.get(0)` returns real EMR {x,y} coordinates. Bounding box now computed from real stroke positions -- positioning confirmed correct.
+6. "T" badge now appears at correct position but is too small (26x26px). User wants header-style marking (Title element with black background). Current build tries `insertElements` with Title (type 100, style 1), falls back to larger text banner.
+
+**"This Page" section -- confirmed working on-device:**
+- TaskHome shows tasks with matching `From: {noteName} p.{pageNum}` in description
+- Even shows tasks from deleted notes (description matching still works)
+
+**Dev log server issues:**
+- Stale node process can hold port 3000 without accepting connections. Kill by PID before restarting.
+- Must use full path: `node "/Users/alex/Library/Mobile Documents/com~apple~CloudDocs/Work/supernote-plugin-research/plugins/SuperTask/dev-server.js"`
+- `debugServerUrl` in config.local.js is baked into build at bundle time
+
+### Session 7 -- 2026-05-03/12: Task marking confirmed, design docs, API research
+
+**On-device testing results:**
+- `setLassoTitle({style: 1})` confirmed working -- black header applied to lasso'd strokes, `{result: true, success: true}`
+- `insertElements` with Title (type 100) confirmed failing -- error 106, same as Link and Text types. All insertElements paths are dead ends.
+- T badge via `insertText` confirmed working -- 32x32 bordered "T" placed to the left of handwriting
+- Todoist API 502/503 errors observed -- added retry logic (up to 2 retries with 1.5s/3s delays)
+- OCR misread: "Testing again" recognized as "i /i" (15 stroke elements). OCR accuracy is an SDK limitation, not a plugin bug.
+
+**Design decision: Title pollutes TOC**
+- `setLassoTitle` creates Title elements that appear in Supernote's Table of Contents
+- Every task-marked handwriting would show as a TOC heading -- not viable
+- Switching to `setLassoStrokeLink` (dashed border, no TOC impact) for task marking
+
+**SDK API research (from source code):**
+- Discovered `setLassoStrokeLink` -- applies visible border to strokes + makes them tappable links
+- Discovered `insertTextLink` -- inserts tappable text link element (key for dashboard)
+- Discovered `insertNotePage` -- adds pages to existing notes
+- Discovered `openFilePath` -- may open .note files from plugin
+- All untested on-device -- queued for next build
+
+**Design docs created:**
+- `docs/design-task-linking.md` -- dashboard concept, inter-note linking, bidirectional navigation. Option B chosen (stroke link to dashboard note + T badge matching mockup SVG).
+- `docs/design-capture-workflow.md` -- streamlined post-action flow. "Mark as Text" replaces handwriting with typed text at same position, left lasso'd for user editing. No font size computation, fixed 20px default.
+
+**Overlay UI research:**
+- Analyzed sn-calc community plugin (github.com/taoist22/sn-calc v2.1.0-beta)
+- Pop-up overlay is purely CSS/layout, same `showType: 1`. Transparent root + centered fixed-width panel.
+- Planned: lasso capture uses compact overlay, toolbar button keeps full-screen TaskHome
+
+**Code changes this session:**
+- `todoist.js`: Added retry logic for 5xx errors (502, 503) with up to 2 retries
+- `Capture.tsx`: Added `setLassoTitle({style: 1})` call after OCR (to be replaced with `setLassoStrokeLink`)
+- `TaskAdd.tsx`: Removed dead `insertElements` Title code, added `titleApplied` flag to skip redundant marking, improved insertText fallback (fontSize 20, wider box), added T badge insertion
+- `CLAUDE.md`: Added "check SDK source first" protocol for problem-solving
