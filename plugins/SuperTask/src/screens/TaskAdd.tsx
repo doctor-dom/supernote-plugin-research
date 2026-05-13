@@ -246,6 +246,16 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
             }
           }
 
+          // Log type 600 (link) elements to understand their structure
+          const linkEls = pageEls.filter((el: any) => el.type === 600);
+          for (let i = 0; i < linkEls.length; i++) {
+            const le = linkEls[i];
+            log('TaskAdd', `Link el[${i}]: numInPage=${le.numInPage} keys=[${Object.keys(le).join(',')}]`);
+            if (le.link) {
+              log('TaskAdd', `  link sub-object: ${JSON.stringify(le.link)}`);
+            }
+          }
+
           // Try matching by UUID
           const uuidMatches = pageEls.filter((el: any) => lassoUuids.has(el.uuid)).length;
           // Try matching by numInPage
@@ -258,21 +268,19 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
           if (matchKey !== 'none') {
             const matchSet = matchKey === 'uuid' ? lassoUuids : lassoNums;
-            // Remove matched strokes AND link elements (type 600) that reference them.
+            // Remove matched strokes AND their associated link elements (type 600).
             // setLassoStrokeLink creates link elements tied to the lasso strokes --
             // removing strokes without their links causes error 502 (broken cross-refs).
-            // Also remove the T badge text elements (type 500) we inserted, since
-            // the typed text replacement serves as the new marking.
-            const removedNums = new Set(
-              pageEls
-                .filter((el: any) => matchSet.has(el[matchKey]))
-                .map((el: any) => el.numInPage)
-            );
+            // Only remove links with numInPage >= min lasso numInPage (added during capture).
+            const minLassoNum = Math.min(...lassoElementIds!.map(el => el.numInPage));
             const filtered = pageEls.filter((el: any) => {
               // Remove the matched lasso strokes
               if (matchSet.has(el[matchKey])) return false;
-              // Remove link elements (type 600) -- they reference removed strokes
-              if (el.type === 600) return false;
+              // Remove only link elements added during/after our capture
+              if (el.type === 600 && el.numInPage >= minLassoNum) {
+                log('TaskAdd', `Removing link el numInPage=${el.numInPage} (>= minLasso=${minLassoNum})`);
+                return false;
+              }
               return true;
             });
 
