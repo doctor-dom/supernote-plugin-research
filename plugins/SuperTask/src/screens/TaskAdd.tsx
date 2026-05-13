@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginNoteAPI, PluginCommAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginNoteAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -33,6 +33,7 @@ type NoteContext = {
   bounds: {left: number; top: number; right: number; bottom: number};
   pageSize?: {width: number; height: number};
   strokeLinkApplied?: boolean;
+  elementUuids?: string[];
 };
 
 type Props = {
@@ -208,21 +209,32 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const handleMarkAsText = async () => {
     if (!noteContext) return;
-    log('TaskAdd', 'MARK AS TEXT pressed');
+    const {filePath, pageNum, bounds, elementUuids} = noteContext;
+    log('TaskAdd', `MARK AS TEXT pressed uuids=${elementUuids?.length ?? 0}`);
     setMarkingAsText(true);
 
     try {
       await PluginNoteAPI.saveCurrentNote();
-      log('TaskAdd', 'saveCurrentNote done, deleting lasso elements...');
+      log('TaskAdd', 'saveCurrentNote done');
 
-      const deleteResult = await PluginCommAPI.deleteLassoElements();
-      log('TaskAdd', `deleteLassoElements result: ${JSON.stringify(deleteResult)}`);
+      if (elementUuids?.length && filePath) {
+        // Read all elements on the page, filter out the captured strokes, write back
+        const getResult = await PluginFileAPI.getElements(pageNum, filePath) as any;
+        log('TaskAdd', `getElements: success=${getResult?.success} count=${getResult?.result?.length ?? 0}`);
 
-      // SDK refresh delay after deletion (inherent 1-2s, pad to 1.5s)
-      await new Promise(resolve => setTimeout(resolve, 1500));
+        if (getResult?.success && getResult?.result) {
+          const uuidSet = new Set(elementUuids);
+          const filtered = getResult.result.filter((el: any) => !uuidSet.has(el.uuid));
+          log('TaskAdd', `Filtering: ${getResult.result.length} total - ${getResult.result.length - filtered.length} matched = ${filtered.length} remaining`);
+
+          const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
+          log('TaskAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
+        }
+      } else {
+        log('TaskAdd', 'No element UUIDs or filePath, skipping deletion');
+      }
 
       // Insert typed text at the same position as the handwriting
-      const {bounds} = noteContext;
       const textWidth = Math.max(200, bounds.right - bounds.left + 16);
       const textHeight = Math.max(40, bounds.bottom - bounds.top + 8);
 

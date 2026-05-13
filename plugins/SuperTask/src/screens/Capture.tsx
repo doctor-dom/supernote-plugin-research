@@ -301,7 +301,13 @@ export default function Capture({mode, nav}: Props) {
       const description = `From: ${fileName} p.${pageNum}`;
       addTrace(`Done: "${content.slice(0, 40)}" -- ${description} strokeLinkApplied=${strokeLinkApplied}`);
 
-      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, strokeLinkApplied} : null;
+      // Collect lasso element UUIDs for later deletion (Mark as Text)
+      const elementUuids = elements.result
+        .map((el: any) => el.uuid)
+        .filter((uuid: string) => !!uuid);
+      addTrace(`Collected ${elementUuids.length} element UUIDs for potential deletion`);
+
+      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, strokeLinkApplied, elementUuids} : null;
       return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureLasso ERROR: ${err.message}`);
