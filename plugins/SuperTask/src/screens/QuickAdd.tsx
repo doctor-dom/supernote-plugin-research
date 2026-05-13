@@ -443,6 +443,11 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     PluginManager.closePluginView();
   };
 
+  const handleViewTasks = () => {
+    log('QuickAdd', 'VIEW TASKS pressed');
+    nav.resetTo('task-home');
+  };
+
   const handleDismiss = () => {
     log('QuickAdd', 'DISMISS (tap outside)');
     PluginManager.closePluginView();
@@ -496,6 +501,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
               </Text>
             </Pressable>
           )}
+          <Pressable style={s.viewTasksBtn} onPress={handleViewTasks}>
+            <Text style={s.viewTasksBtnText}>View Tasks</Text>
+          </Pressable>
           <Pressable style={s.doneBtn} onPress={handleDone}>
             <Text style={s.doneBtnText}>Done</Text>
           </Pressable>
@@ -532,6 +540,17 @@ export default function QuickAdd({nav}: {nav: Nav}) {
           </View>
         )}
 
+        <View style={s.field}>
+          <Text style={s.label}>Description</Text>
+          <TextInput
+            style={[s.input, s.inputDesc]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Optional notes"
+            multiline
+          />
+        </View>
+
         <Pressable style={s.submitBtn} onPress={handleSubmit}>
           <Text style={s.submitBtnText}>Add to Todoist</Text>
         </Pressable>
@@ -546,9 +565,16 @@ export default function QuickAdd({nav}: {nav: Nav}) {
           <Text style={s.panelTitle}>
             {phase === 'success' ? 'Done' : phase === 'error' ? 'Error' : 'Quick Add'}
           </Text>
-          <Pressable style={s.closeBtn} onPress={handleDone}>
-            <Text style={s.closeBtnText}>X</Text>
-          </Pressable>
+          <View style={s.headerRight}>
+            {phase === 'ready' && (
+              <Pressable style={s.tasksLink} onPress={handleViewTasks}>
+                <Text style={s.tasksLinkText}>Tasks</Text>
+              </Pressable>
+            )}
+            <Pressable style={s.closeBtn} onPress={handleDone}>
+              <Text style={s.closeBtnText}>X</Text>
+            </Pressable>
+          </View>
         </View>
         {renderPanelContent()}
       </Pressable>
@@ -586,6 +612,21 @@ const s = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#000000',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  tasksLink: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  tasksLinkText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000000',
+    textDecorationLine: 'underline',
   },
   closeBtn: {
     width: 36,
@@ -646,6 +687,10 @@ const s = StyleSheet.create({
     color: '#000000',
     minHeight: 44,
   },
+  inputDesc: {
+    minHeight: 50,
+    textAlignVertical: 'top',
+  },
   buttonRow: {
     flexDirection: 'row',
     gap: 12,
@@ -697,6 +742,20 @@ const s = StyleSheet.create({
   },
   markBtnTextDone: {
     color: '#666666',
+  },
+  viewTasksBtn: {
+    paddingVertical: 12,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    marginBottom: 12,
+  },
+  viewTasksBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
   },
   doneBtn: {
     paddingVertical: 14,
