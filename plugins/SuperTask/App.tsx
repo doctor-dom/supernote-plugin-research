@@ -17,6 +17,7 @@ import ProjectView from './src/screens/ProjectView';
 import TaskDetail from './src/screens/TaskDetail';
 import TaskAdd from './src/screens/TaskAdd';
 import Capture from './src/screens/Capture';
+import QuickAdd from './src/screens/QuickAdd';
 import Config from './src/screens/Config';
 import Diagnostics from './src/screens/Diagnostics';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
@@ -170,9 +171,10 @@ function App(): React.JSX.Element {
   }
 
   const nav = {push, pop, replace, resetTo, canGoBack};
+  const isOverlay = current.name === 'capture-lasso';
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isOverlay && styles.containerOverlay]}>
       {current.name === 'task-home' && (
         <TaskHome nav={nav} />
       )}
@@ -194,7 +196,7 @@ function App(): React.JSX.Element {
         />
       )}
       {current.name === 'capture-lasso' && (
-        <Capture mode="lasso" nav={nav} />
+        <QuickAdd nav={nav} />
       )}
       {current.name === 'capture-doc' && (
         <Capture mode="doc" nav={nav} />
@@ -213,6 +215,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  containerOverlay: {
+    backgroundColor: 'transparent',
   },
   debugHeader: {
     flexDirection: 'row',
