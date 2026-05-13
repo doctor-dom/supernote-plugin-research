@@ -61,6 +61,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [defaultScreen, setDefaultScreen] = useState('task-home');
   const [debugMode, setDebugMode] = useState(false);
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
+  const [markAsTextLink, setMarkAsTextLink] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -77,6 +78,7 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
+      if (config.markAsTextLink !== undefined) setMarkAsTextLink(config.markAsTextLink);
 
       if (config.apiToken) {
         try {
@@ -148,6 +150,7 @@ export default function Config({onNavigate, nav}: Props) {
       defaultScreen,
       debugMode,
       markAsTextFontSize,
+      markAsTextLink,
     });
     setSaveStatus('Saved!');
     setTimeout(() => setSaveStatus(''), 2000);
@@ -313,6 +316,21 @@ export default function Config({onNavigate, nav}: Props) {
         </View>
         <Text style={styles.hint}>
           Font size when replacing handwriting with typed text.
+        </Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.label}>Link to Todoist Task</Text>
+        <Pressable
+          style={styles.radioRow}
+          onPress={() => setMarkAsTextLink(!markAsTextLink)}>
+          <Text style={styles.radioCheck}>
+            {markAsTextLink ? '[X]' : '[  ]'}
+          </Text>
+          <Text style={styles.radioLabel}>Add Todoist link to replaced text</Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          Adds dashed border + tappable link. Note: breaking the link removes the text.
         </Text>
       </View>
 
