@@ -258,12 +258,26 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
           if (matchKey !== 'none') {
             const matchSet = matchKey === 'uuid' ? lassoUuids : lassoNums;
-            const filtered = pageEls.filter((el: any) => !matchSet.has(el[matchKey]));
-            log('TaskAdd', `Filtering: ${pageEls.length} total - ${pageEls.length - filtered.length} matched = ${filtered.length} remaining`);
+            // Remove matched strokes AND link elements (type 600) that reference them.
+            // setLassoStrokeLink creates link elements tied to the lasso strokes --
+            // removing strokes without their links causes error 502 (broken cross-refs).
+            // Also remove the T badge text elements (type 500) we inserted, since
+            // the typed text replacement serves as the new marking.
+            const removedNums = new Set(
+              pageEls
+                .filter((el: any) => matchSet.has(el[matchKey]))
+                .map((el: any) => el.numInPage)
+            );
+            const filtered = pageEls.filter((el: any) => {
+              // Remove the matched lasso strokes
+              if (matchSet.has(el[matchKey])) return false;
+              // Remove link elements (type 600) -- they reference removed strokes
+              if (el.type === 600) return false;
+              return true;
+            });
 
-            // Log element types being kept vs removed
-            const removed = pageEls.filter((el: any) => matchSet.has(el[matchKey]));
-            log('TaskAdd', `Removing types: [${removed.map((el: any) => el.type).join(',')}]`);
+            const removedCount = pageEls.length - filtered.length;
+            log('TaskAdd', `Filtering: ${pageEls.length} total - ${removedCount} removed = ${filtered.length} remaining`);
             log('TaskAdd', `Keeping types: [${filtered.map((el: any) => el.type).join(',')}]`);
 
             const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
