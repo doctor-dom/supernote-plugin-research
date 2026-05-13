@@ -18,6 +18,7 @@ import TaskDetail from './src/screens/TaskDetail';
 import TaskAdd from './src/screens/TaskAdd';
 import Capture from './src/screens/Capture';
 import Config from './src/screens/Config';
+import Diagnostics from './src/screens/Diagnostics';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
 import {loadConfig} from './src/utils/config';
 
@@ -199,7 +200,10 @@ function App(): React.JSX.Element {
         <Capture mode="doc" nav={nav} />
       )}
       {current.name === 'config' && (
-        <Config onNavigate={(s: string) => resetTo(s)} />
+        <Config onNavigate={(s: string) => resetTo(s)} nav={nav} />
+      )}
+      {current.name === 'diagnostics' && (
+        <Diagnostics nav={nav} />
       )}
     </View>
   );

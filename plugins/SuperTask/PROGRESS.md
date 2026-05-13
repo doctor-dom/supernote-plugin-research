@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 7 complete.** setLassoTitle confirmed working (black header). Title pollutes TOC though, so switching to setLassoStrokeLink (dashed border). Design docs written for task linking/dashboard and capture workflow. Todoist API retry logic added.
+**Session 8 in progress.** setLassoStrokeLink confirmed working on-device (dashed border + link icon). All dashboard APIs confirmed working: createNote, insertTextLink, insertNotePage, replaceElements. Dashboard v1 is fully unblocked.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -14,12 +14,12 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 2: Task viewer | Done | Stack nav, tabbed home, project drill-down, detail/add, date picker |
 | 3: Post-action + config | Done | Add Another/Done/View Task flow, silent refresh, tabbed config |
 | 5: Lasso capture | Done | Handwriting OCR via recognizeElements, pre-fills TaskAdd |
-| 5b: Task marking | Building | setLassoTitle works but pollutes TOC. Switching to setLassoStrokeLink (dashed border + T badge). See design docs. |
+| 5b: Task marking | Done | setLassoStrokeLink (dashed border + link icon) confirmed on-device. T badge via insertText. |
 | 5c: This Page | Done | Confirmed working on-device (shows tasks for current note/page) |
 | 5d: Capture workflow | Designed | Post-action "Mark as Text" to replace handwriting with typed text. See `docs/design-capture-workflow.md` |
 | 5e: Quick-add overlay | Designed | Compact pop-up for lasso capture instead of full-screen. Proven approach from sn-calc plugin (transparent root + centered panel). |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
-| 9: Task dashboard | Designed | Interlinked SuperTask.note as central task hub. Bidirectional links between source notes and dashboard. See `docs/design-task-linking.md` |
+| 9: Task dashboard | Unblocked | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. Ready to build. |
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 7: Config persistence | Blocked | SDK has no writeFile, saveTextToFile not exposed to JS |
@@ -30,11 +30,11 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 Build one at a time, test each on-device before moving to the next:
 
-1. **Task marking: setLassoStrokeLink** -- replace setLassoTitle with dashed border (style 2) + T badge matching `docs/task-mark-mockup.svg`. Test that lasso context works for stroke links same as it did for titles.
-2. **Dashboard API probing** -- test createNote, insertTextLink, replaceElements, openFilePath, getNoteSystemTemplates, insertNotePage in a diagnostic build. Results determine what's feasible for the dashboard.
+1. ~~**Task marking: setLassoStrokeLink**~~ -- DONE. Dashed border + T badge confirmed on-device.
+2. ~~**Dashboard API probing**~~ -- DONE. All APIs work with note context. See Session 8 results below.
 3. **Mark as Text post-action** -- add button to post-create overlay. Deletes handwriting strokes, inserts typed text at same position, leaves it lasso'd for user editing.
 4. **Quick-add overlay** -- lasso capture opens compact pop-up panel (transparent root + centered panel pattern). Toolbar button keeps full-screen TaskHome.
-5. **Dashboard v1** -- based on API test results, build single-page dashboard with bidirectional links.
+5. **Dashboard v1** -- all APIs confirmed. Build single-page dashboard with bidirectional links using createNote + insertTextLink + insertNotePage.
 
 ## Architecture
 
@@ -191,17 +191,19 @@ bash buildPlugin.sh                          # 2. Build
 - Confirmed on-device: `{result: true, success: true}` with style 1
 - **Problem**: Title elements show up in Supernote's Table of Contents. Not viable for task marking.
 
-**`PluginNoteAPI.setLassoStrokeLink({destPath, destPage, style, linkType})` -- UNTESTED**
-- Makes lasso-selected strokes into a tappable link with visible border
+**`PluginNoteAPI.setLassoStrokeLink({destPath, destPage, style, linkType})` -- WORKS (confirmed Session 8)**
+- Makes lasso-selected strokes into a tappable link with visible dashed border + link icon
 - Styles: 0=solid underline, 1=solid border, 2=dashed border
 - Link types: 0=note page, 1=note file, 2=document, 3=image, 4=URL
-- Should not affect TOC (links are not titles)
+- Does NOT affect TOC (unlike setLassoTitle)
 - Must be called while lasso context is active (same timing as setLassoTitle)
+- Link is functional -- tapping opens browser/target
 
-**`PluginNoteAPI.insertTextLink()` -- UNTESTED**
+**`PluginNoteAPI.insertTextLink()` -- WORKS (confirmed Session 8)**
 - Inserts a tappable text link element on current note page
 - Params: destPath, destPage, style, linkType, rect, fontSize, fullText, showText, isItalic
-- Key for dashboard bidirectional linking
+- Returns `{result: 0, success: true}` on success
+- **Requires active note context** -- fails with error 102 if no note is open
 
 **`PluginFileAPI.insertElements()` -- FAILS with error 106**
 - JS-side schema validation passes, but native layer rejects with code 106: "Invalid API parameters"
@@ -363,3 +365,31 @@ bash buildPlugin.sh                          # 2. Build
 - `Capture.tsx`: Added `setLassoTitle({style: 1})` call after OCR (to be replaced with `setLassoStrokeLink`)
 - `TaskAdd.tsx`: Removed dead `insertElements` Title code, added `titleApplied` flag to skip redundant marking, improved insertText fallback (fontSize 20, wider box), added T badge insertion
 - `CLAUDE.md`: Added "check SDK source first" protocol for problem-solving
+
+### Session 8 -- 2026-05-12: setLassoStrokeLink confirmed, all dashboard APIs pass
+
+**setLassoStrokeLink -- confirmed working on-device:**
+- Replaced `setLassoTitle({style: 1})` with `setLassoStrokeLink({destPath: 'https://todoist.com', destPage: 0, style: 2, linkType: 4})`
+- Dashed border appears around lasso'd strokes with a link icon
+- Link is tappable -- opens device browser to todoist.com (placeholder URL for testing)
+- Does NOT pollute Table of Contents (unlike setLassoTitle)
+- T badge via insertText still works alongside the stroke link
+
+**Dashboard API diagnostics -- all 7 tests pass:**
+- Built Diagnostics screen to probe APIs needed for dashboard
+- Key finding: all APIs require active note context. Tests fail with error 102 ("not allowed") when run from Config screen (no note context). All pass when run from TaskHome with note open.
+- `getNoteSystemTemplates()` -- 28 templates, objects with `{name, hUri, vUri}` fields
+- `createNote({notePath, template: 'style_white', mode: 0, isPortrait: true})` -- works with `Template.name` and full absolute path (`/storage/emulated/0/Note/...`)
+- `insertTextLink({destPath, destPage, style, linkType, rect, fontSize, fullText, showText, isItalic})` -- works, `{result: 0, success: true}`
+- `insertNotePage({notePath, page, template: 'style_white'})` -- works, appends page
+- `replaceElements(notePath, page, elements)` -- works (roundtrip read/write)
+- `openFilePath(path)` -- works but ejects from note to file manager (not useful for dashboard)
+- Error 102 is NOT a permission restriction -- it means "no active note context available"
+
+**Code changes:**
+- `Capture.tsx`: Replaced setLassoTitle with setLassoStrokeLink (style 2 = dashed border, linkType 4 = URL)
+- `TaskAdd.tsx`: Renamed `titleApplied` to `strokeLinkApplied` throughout
+- `Diagnostics.tsx`: New screen -- tests dashboard APIs with timeouts, proper absolute paths, per-attempt error logging
+- `App.tsx`: Added Diagnostics screen routing
+- `Config.tsx`: Added API Diagnostics button (debug mode only)
+- `TaskHome.tsx`: Added Diag button in header (debug mode only)

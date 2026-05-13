@@ -352,6 +352,11 @@ export default function TaskHome({nav}: Props) {
               <Text style={styles.headerButtonText}>Log</Text>
             </Pressable>
           )}
+          {debugMode && (
+            <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'DIAG pressed'); nav.push('diagnostics'); }}>
+              <Text style={styles.headerButtonText}>Diag</Text>
+            </Pressable>
+          )}
           <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); PluginManager.closePluginView(); }}>
             <Text style={styles.headerButtonText}>Close</Text>
           </Pressable>

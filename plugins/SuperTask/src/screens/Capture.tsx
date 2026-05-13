@@ -278,23 +278,30 @@ export default function Capture({mode, nav}: Props) {
         addTrace(`Bounds calc failed: ${e.message}`);
       }
 
-      // Apply title styling to lasso strokes while context is still active
-      let titleApplied = false;
+      // Apply dashed border to lasso strokes while context is still active
+      // Uses setLassoStrokeLink (style 2 = dashed border) instead of setLassoTitle
+      // which pollutes the Table of Contents
+      let strokeLinkApplied = false;
       try {
-        addTrace('Trying setLassoTitle style=1 (black background)...');
-        const titleResult = await PluginNoteAPI.setLassoTitle({style: 1});
-        addTrace(`setLassoTitle result: ${JSON.stringify(titleResult)}`);
-        titleApplied = !!titleResult?.success;
+        addTrace('Trying setLassoStrokeLink style=2 (dashed border)...');
+        const linkResult = await PluginNoteAPI.setLassoStrokeLink({
+          destPath: 'https://todoist.com',
+          destPage: 0,
+          style: 2,
+          linkType: 4,
+        });
+        addTrace(`setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
+        strokeLinkApplied = !!(linkResult?.success || linkResult?.result === 0);
       } catch (e: any) {
-        addTrace(`setLassoTitle failed: ${e.message}`);
+        addTrace(`setLassoStrokeLink failed: ${e.message}`);
       }
 
       // Build source context from filePath/pageNum we already fetched
       const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
       const description = `From: ${fileName} p.${pageNum}`;
-      addTrace(`Done: "${content.slice(0, 40)}" -- ${description} titleApplied=${titleApplied}`);
+      addTrace(`Done: "${content.slice(0, 40)}" -- ${description} strokeLinkApplied=${strokeLinkApplied}`);
 
-      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, titleApplied} : null;
+      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, strokeLinkApplied} : null;
       return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureLasso ERROR: ${err.message}`);

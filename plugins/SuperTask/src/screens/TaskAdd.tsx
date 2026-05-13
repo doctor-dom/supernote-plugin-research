@@ -32,7 +32,7 @@ type NoteContext = {
   pageNum: number;
   bounds: {left: number; top: number; right: number; bottom: number};
   pageSize?: {width: number; height: number};
-  titleApplied?: boolean;
+  strokeLinkApplied?: boolean;
 };
 
 type Props = {
@@ -112,13 +112,13 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const insertTaskMark = async (taskId: string) => {
     if (!noteContext) return;
-    const {bounds, titleApplied} = noteContext;
-    log('TaskAdd', `Inserting task mark: bounds=${JSON.stringify(bounds)} taskId=${taskId} titleApplied=${titleApplied}`);
+    const {bounds, strokeLinkApplied} = noteContext;
+    log('TaskAdd', `Inserting task mark: bounds=${JSON.stringify(bounds)} taskId=${taskId} strokeLinkApplied=${strokeLinkApplied}`);
 
     try {
       await PluginNoteAPI.saveCurrentNote();
 
-      if (titleApplied) {
+      if (strokeLinkApplied) {
         // Title header already applied -- add a "T" badge to the left as task indicator
         const badgeW = 32;
         const badgeH = Math.min(32, bounds.bottom - bounds.top + 4);

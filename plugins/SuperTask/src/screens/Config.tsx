@@ -23,6 +23,7 @@ import TabBar from '../components/TabBar';
 
 type Props = {
   onNavigate: (screen: string) => void;
+  nav?: {push: (name: string, params?: Record<string, any>) => void; pop: () => void; replace: (name: string, params?: Record<string, any>) => void; resetTo: (name: string, params?: Record<string, any>) => void; canGoBack: boolean};
 };
 
 const CONFIG_TABS = [
@@ -46,7 +47,7 @@ const DEFAULT_SCREEN_OPTIONS = [
   {key: 'last-used', label: 'Last Used Screen'},
 ];
 
-export default function Config({onNavigate}: Props) {
+export default function Config({onNavigate, nav}: Props) {
   const [activeTab, setActiveTab] = useState('connections');
   const [token, setToken] = useState('');
   const [tokenMasked, setTokenMasked] = useState(true);
@@ -307,6 +308,17 @@ export default function Config({onNavigate}: Props) {
           When off, hides debug UI and disables log uploads.
         </Text>
       </View>
+
+      {debugMode && nav && (
+        <View style={styles.section}>
+          <Pressable style={styles.actionButton} onPress={() => nav.push('diagnostics')}>
+            <Text style={styles.actionText}>API Diagnostics</Text>
+          </Pressable>
+          <Text style={styles.hint}>
+            Test SDK APIs needed for dashboard feature.
+          </Text>
+        </View>
+      )}
     </ScrollView>
   );
 
