@@ -301,13 +301,15 @@ export default function Capture({mode, nav}: Props) {
       const description = `From: ${fileName} p.${pageNum}`;
       addTrace(`Done: "${content.slice(0, 40)}" -- ${description} strokeLinkApplied=${strokeLinkApplied}`);
 
-      // Collect lasso element UUIDs for later deletion (Mark as Text)
-      const elementUuids = elements.result
-        .map((el: any) => el.uuid)
-        .filter((uuid: string) => !!uuid);
-      addTrace(`Collected ${elementUuids.length} element UUIDs for potential deletion`);
+      // Collect lasso element identifiers for later deletion (Mark as Text)
+      const lassoElementIds = elements.result.map((el: any) => ({
+        uuid: el.uuid,
+        numInPage: el.numInPage,
+        type: el.type,
+      }));
+      addTrace(`Collected ${lassoElementIds.length} element IDs (sample: uuid=${lassoElementIds[0]?.uuid} numInPage=${lassoElementIds[0]?.numInPage})`);
 
-      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, strokeLinkApplied, elementUuids} : null;
+      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, strokeLinkApplied, lassoElementIds} : null;
       return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureLasso ERROR: ${err.message}`);

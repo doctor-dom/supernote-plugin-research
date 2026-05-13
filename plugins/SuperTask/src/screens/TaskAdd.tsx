@@ -27,13 +27,19 @@ type Nav = {
   canGoBack: boolean;
 };
 
+type LassoElementId = {
+  uuid: string;
+  numInPage: number;
+  type: number;
+};
+
 type NoteContext = {
   filePath: string;
   pageNum: number;
   bounds: {left: number; top: number; right: number; bottom: number};
   pageSize?: {width: number; height: number};
   strokeLinkApplied?: boolean;
-  elementUuids?: string[];
+  lassoElementIds?: LassoElementId[];
 };
 
 type Props = {
@@ -209,29 +215,63 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const handleMarkAsText = async () => {
     if (!noteContext) return;
-    const {filePath, pageNum, bounds, elementUuids} = noteContext;
-    log('TaskAdd', `MARK AS TEXT pressed uuids=${elementUuids?.length ?? 0}`);
+    const {filePath, pageNum, bounds, lassoElementIds} = noteContext;
+    log('TaskAdd', `MARK AS TEXT pressed lassoIds=${lassoElementIds?.length ?? 0}`);
     setMarkingAsText(true);
 
     try {
       await PluginNoteAPI.saveCurrentNote();
       log('TaskAdd', 'saveCurrentNote done');
 
-      if (elementUuids?.length && filePath) {
-        // Read all elements on the page, filter out the captured strokes, write back
+      if (lassoElementIds?.length && filePath) {
+        // Log lasso element identifiers
+        const lassoNums = new Set(lassoElementIds.map(el => el.numInPage));
+        const lassoUuids = new Set(lassoElementIds.map(el => el.uuid));
+        log('TaskAdd', `Lasso numInPage values: [${[...lassoNums].join(',')}]`);
+        log('TaskAdd', `Lasso UUIDs (first 3): [${lassoElementIds.slice(0, 3).map(el => el.uuid).join(', ')}]`);
+
+        // Read all page elements and log their keys for comparison
         const getResult = await PluginFileAPI.getElements(pageNum, filePath) as any;
         log('TaskAdd', `getElements: success=${getResult?.success} count=${getResult?.result?.length ?? 0}`);
 
         if (getResult?.success && getResult?.result) {
-          const uuidSet = new Set(elementUuids);
-          const filtered = getResult.result.filter((el: any) => !uuidSet.has(el.uuid));
-          log('TaskAdd', `Filtering: ${getResult.result.length} total - ${getResult.result.length - filtered.length} matched = ${filtered.length} remaining`);
+          const pageEls = getResult.result;
 
-          const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
-          log('TaskAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
+          // Log keys and identifiers of first 3 page elements
+          if (pageEls.length > 0) {
+            log('TaskAdd', `Page el[0] keys: [${Object.keys(pageEls[0]).join(',')}]`);
+            for (let i = 0; i < Math.min(3, pageEls.length); i++) {
+              const el = pageEls[i];
+              log('TaskAdd', `Page el[${i}]: uuid=${el.uuid} numInPage=${el.numInPage} type=${el.type} hasLink=${!!el.link} hasStroke=${!!el.stroke}`);
+            }
+          }
+
+          // Try matching by UUID
+          const uuidMatches = pageEls.filter((el: any) => lassoUuids.has(el.uuid)).length;
+          // Try matching by numInPage
+          const numMatches = pageEls.filter((el: any) => lassoNums.has(el.numInPage)).length;
+          log('TaskAdd', `Match results: byUUID=${uuidMatches}/${pageEls.length} byNumInPage=${numMatches}/${pageEls.length}`);
+
+          // Use whichever matching key works (prefer numInPage if UUID fails)
+          const matchKey = uuidMatches > 0 ? 'uuid' : numMatches > 0 ? 'numInPage' : 'none';
+          log('TaskAdd', `Using match key: ${matchKey}`);
+
+          if (matchKey !== 'none') {
+            const matchSet = matchKey === 'uuid' ? lassoUuids : lassoNums;
+            const filtered = pageEls.filter((el: any) => !matchSet.has(el[matchKey]));
+            log('TaskAdd', `Filtering: ${pageEls.length} total - ${pageEls.length - filtered.length} matched = ${filtered.length} remaining`);
+
+            // Log element types being kept vs removed
+            const removed = pageEls.filter((el: any) => matchSet.has(el[matchKey]));
+            log('TaskAdd', `Removing types: [${removed.map((el: any) => el.type).join(',')}]`);
+            log('TaskAdd', `Keeping types: [${filtered.map((el: any) => el.type).join(',')}]`);
+
+            const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
+            log('TaskAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
+          }
         }
       } else {
-        log('TaskAdd', 'No element UUIDs or filePath, skipping deletion');
+        log('TaskAdd', 'No lasso element IDs or filePath, skipping deletion');
       }
 
       // Insert typed text at the same position as the handwriting
