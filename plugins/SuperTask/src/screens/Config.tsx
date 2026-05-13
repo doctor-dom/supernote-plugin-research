@@ -330,7 +330,7 @@ export default function Config({onNavigate, nav}: Props) {
           <Text style={styles.radioLabel}>Add Todoist link to replaced text</Text>
         </Pressable>
         <Text style={styles.hint}>
-          Adds dashed border + tappable link. Note: breaking the link removes the text.
+          Adds dashed border + tappable link to Todoist task. Breaking the link leaves text intact.
         </Text>
       </View>
 

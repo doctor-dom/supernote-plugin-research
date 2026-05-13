@@ -240,39 +240,19 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         bottom: bounds.top + textHeight,
       };
 
-      let insertResult: any;
-      if (markAsTextLink) {
-        // Insert as link element -- dashed border + Todoist link, but atomic
-        // (breaking link removes text)
-        const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
-        log('TaskAdd', `insertTextLink: l=${textRect.left} t=${textRect.top} w=${textWidth} h=${textHeight} fontSize=${fontSize} text="${content.trim().slice(0, 40)}"`);
-        insertResult = await PluginNoteAPI.insertTextLink({
-          destPath: taskUrl,
-          destPage: 0,
-          style: 2,
-          linkType: 4,
-          rect: textRect,
-          fontSize,
-          fullText: content.trim(),
-          showText: content.trim(),
-          isItalic: 0,
-        });
-      } else {
-        // Insert as plain text -- editable, native behavior
-        log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} w=${textWidth} h=${textHeight} fontSize=${fontSize} text="${content.trim().slice(0, 40)}"`);
-        insertResult = await PluginNoteAPI.insertText({
-          textContentFull: content.trim(),
-          textRect,
-          fontSize,
-          textBold: 0,
-          textAlign: 0,
-          textFrameStyle: 0,
-          textEditable: 0,
-          textItalics: 0,
-          textFrameWidthType: 1,
-        });
-      }
-      log('TaskAdd', `insert result: ${JSON.stringify(insertResult)}`);
+      log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} w=${textWidth} h=${textHeight} fontSize=${fontSize} text="${content.trim().slice(0, 40)}"`);
+      const insertResult = await PluginNoteAPI.insertText({
+        textContentFull: content.trim(),
+        textRect,
+        fontSize,
+        textBold: 0,
+        textAlign: 0,
+        textFrameStyle: 0,
+        textEditable: 0,
+        textItalics: 0,
+        textFrameWidthType: 1,
+      });
+      log('TaskAdd', `insertText result: ${JSON.stringify(insertResult)}`);
 
       // Now remove the handwriting strokes via getElements/replaceElements
       if (lassoElementIds?.length && filePath) {
@@ -317,8 +297,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         }
       }
 
-      // Try to re-lasso the inserted text so the user can move/edit it immediately.
-      // lassoElements is a newer API -- may not be available on all firmware.
+      // Re-lasso the inserted text so the user can move/edit it immediately.
       try {
         const lassoRect = {
           left: bounds.left - 4,
@@ -329,8 +308,23 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         log('TaskAdd', `Trying lassoElements: ${JSON.stringify(lassoRect)}`);
         const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
         log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
+
+        // Apply link to the lassoed text if enabled.
+        // Uses setLassoStrokeLink which supports TextBox elements --
+        // unlike insertTextLink, breaking the link leaves the text behind.
+        if (markAsTextLink && lassoResult?.success) {
+          const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
+          log('TaskAdd', `Applying setLassoStrokeLink to text: ${taskUrl}`);
+          const linkResult = await PluginNoteAPI.setLassoStrokeLink({
+            destPath: taskUrl,
+            destPage: 0,
+            style: 2,
+            linkType: 4,
+          });
+          log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
+        }
       } catch (e: any) {
-        log('TaskAdd', `lassoElements not available or failed: ${e.message}`);
+        log('TaskAdd', `lassoElements/link failed: ${e.message}`);
       }
 
       setMarkAsTextDone(true);
