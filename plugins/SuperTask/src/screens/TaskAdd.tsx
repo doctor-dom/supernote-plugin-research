@@ -309,17 +309,19 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
         log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
 
-        // Apply link to the lassoed text if enabled.
-        // Uses setLassoStrokeLink which supports TextBox elements --
-        // unlike insertTextLink, breaking the link leaves the text behind.
-        if (markAsTextLink && lassoResult?.success) {
+        // Always apply dashed border as visual task marker.
+        // If linking is enabled, link points to Todoist task.
+        // If disabled, link points to current note page (no-op).
+        if (lassoResult?.success) {
           const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
-          log('TaskAdd', `Applying setLassoStrokeLink to text: ${taskUrl}`);
+          const destPath = markAsTextLink ? taskUrl : filePath || taskUrl;
+          const linkType = markAsTextLink ? 4 : 0;
+          log('TaskAdd', `Applying setLassoStrokeLink: linkEnabled=${markAsTextLink} destPath=${destPath.slice(0, 40)}`);
           const linkResult = await PluginNoteAPI.setLassoStrokeLink({
-            destPath: taskUrl,
-            destPage: 0,
+            destPath,
+            destPage: markAsTextLink ? 0 : pageNum,
             style: 2,
-            linkType: 4,
+            linkType,
           });
           log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
         }
