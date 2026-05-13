@@ -41,14 +41,19 @@ Key SDK source files to check:
 - `registerButton(type, appTypes, config)` -- type 1 = toolbar, type 2 = lasso bar, type 3 = selection bar
 - `showType: 0` = headless/background, `showType: 1` = full-screen React Native UI
 - All SDK API calls are async (return Promises)
-- `saveCurrentNote()` is mandatory before `deleteElements()` to avoid stale state
+- `saveCurrentNote()` is mandatory before `replaceElements()` to avoid stale state
+- **File vs in-memory state**: `PluginNoteAPI` methods work on in-memory state; `PluginFileAPI` methods work on the .note file. After `replaceElements()`, call `reloadFile()` to sync the display.
+- **Lasso context is ephemeral**: expires after navigation (e.g., Capture -> TaskAdd). `deleteLassoElements()` returns error 904 outside lasso context. Use `getElements()` + filter + `replaceElements()` instead.
+- **Element matching**: `getLassoElements()` and `getElements()` return different UUIDs. Match by `numInPage` instead.
+- **Link element cross-references**: Link elements (type 600) have `link.controlTrailNums` containing `numInPage` values of referenced strokes. Must remove associated links when removing strokes or `replaceElements` fails with error 502.
+- **Hybrid text+link pattern**: `insertText()` + `lassoElements(rect)` + `setLassoStrokeLink()` gives editable text with dashed border. Breaking link leaves text intact (unlike `insertTextLink` which is atomic).
 - Plugin directory via `getPluginDirPath()` for persistent local storage (JSON, config)
 - `fetch()` works for HTTP/HTTPS calls -- confirmed on-device (Todoist API, dev log server)
 
 ### SDK method locations (which class has which method)
-- **PluginCommAPI**: `getCurrentFilePath()`, `getCurrentPageNum()`, `getNoteSystemTemplates()`, `recognizeElements()`
-- **PluginNoteAPI**: `insertText()` (current note only), `saveCurrentNote()`, `getLastElement()`
-- **PluginFileAPI**: `insertElements(notePath, page, elements)`, `createNote()`, `getElements()`, `getNotePageTemplate()`, `getNoteTotalPageNum()`
+- **PluginCommAPI**: `getCurrentFilePath()`, `getCurrentPageNum()`, `getNoteSystemTemplates()`, `recognizeElements()`, `deleteLassoElements()`, `lassoElements(rect)`, `reloadFile()`, `setLassoBoxState(state)`
+- **PluginNoteAPI**: `insertText()` (current note only), `insertTextLink()`, `saveCurrentNote()`, `getLastElement()`, `setLassoStrokeLink()` (supports strokes, geometries, AND TextBox elements)
+- **PluginFileAPI**: `insertElements(notePath, page, elements)`, `createNote()`, `getElements()`, `replaceElements()`, `getNotePageTemplate()`, `getNoteTotalPageNum()`
 - **FileUtils**: `getExportPath()`, `exists()`, `makeDir()`, `copyFile()`, `deleteFile()`, `listFiles()` -- **NO `writeFile()` method exists**
 - **PluginManager**: `getPluginDirPath()`, `closePluginView()`, `registerButton()`, `getDeviceType()`
 

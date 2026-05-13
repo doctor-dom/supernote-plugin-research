@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 8 in progress.** setLassoStrokeLink confirmed working on-device (dashed border + link icon). All dashboard APIs confirmed working: createNote, insertTextLink, insertNotePage, replaceElements. Dashboard v1 is fully unblocked.
+**Session 9 complete.** Mark as Text post-action working on-device. Replaces handwriting with editable typed text, dashed border via setLassoStrokeLink on TextBox, re-lassoed for immediate adjustment. Configurable font size and optional Todoist link.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -16,7 +16,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 5: Lasso capture | Done | Handwriting OCR via recognizeElements, pre-fills TaskAdd |
 | 5b: Task marking | Done | setLassoStrokeLink (dashed border + link icon) confirmed on-device. T badge via insertText. |
 | 5c: This Page | Done | Confirmed working on-device (shows tasks for current note/page) |
-| 5d: Capture workflow | Designed | Post-action "Mark as Text" to replace handwriting with typed text. See `docs/design-capture-workflow.md` |
+| 5d: Mark as Text | Done | Post-action replaces handwriting with editable typed text + dashed border. Configurable font size and Todoist link. |
 | 5e: Quick-add overlay | Designed | Compact pop-up for lasso capture instead of full-screen. Proven approach from sn-calc plugin (transparent root + centered panel). |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
 | 9: Task dashboard | Unblocked | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. Ready to build. |
@@ -32,9 +32,10 @@ Build one at a time, test each on-device before moving to the next:
 
 1. ~~**Task marking: setLassoStrokeLink**~~ -- DONE. Dashed border + T badge confirmed on-device.
 2. ~~**Dashboard API probing**~~ -- DONE. All APIs work with note context. See Session 8 results below.
-3. **Mark as Text post-action** -- add button to post-create overlay. Deletes handwriting strokes, inserts typed text at same position, leaves it lasso'd for user editing.
+3. ~~**Mark as Text post-action**~~ -- DONE. Replaces handwriting with typed text, dashed border, re-lassoed. See Session 9.
 4. **Quick-add overlay** -- lasso capture opens compact pop-up panel (transparent root + centered panel pattern). Toolbar button keeps full-screen TaskHome.
 5. **Dashboard v1** -- all APIs confirmed. Build single-page dashboard with bidirectional links using createNote + insertTextLink + insertNotePage.
+6. **Config redesign** -- settings screen is getting bloated. Needs reorganization as features accumulate.
 
 ## Architecture
 
@@ -393,3 +394,61 @@ bash buildPlugin.sh                          # 2. Build
 - `App.tsx`: Added Diagnostics screen routing
 - `Config.tsx`: Added API Diagnostics button (debug mode only)
 - `TaskHome.tsx`: Added Diag button in header (debug mode only)
+
+### Session 9 -- 2026-05-13: Mark as Text post-action complete
+
+**Mark as Text -- confirmed working on-device (10+ test builds):**
+- Post-create overlay shows "Mark as Text" button for lasso captures with noteContext
+- Replaces handwriting strokes with editable typed text at same position
+- Dashed border + link icon via setLassoStrokeLink on TextBox element
+- Re-lassoed via lassoElements(rect) for immediate adjustment
+- Font size 32 default, configurable (24/28/32/36/40) in Config Preferences
+- Todoist link optional (toggle in Config), defaults to self-referencing note link
+
+**Key SDK discoveries:**
+
+*Element matching between APIs:*
+- `getLassoElements()` and `getElements()` return different UUIDs for the same elements
+- Match by `numInPage` instead -- stable identifier across both APIs
+- Lasso elements have key `numInPage` that corresponds to page element `numInPage`
+
+*Link element structure:*
+- Link elements (type 600) have `link.controlTrailNums` array containing the `numInPage` values of referenced strokes
+- Use `controlTrailNums` overlap to surgically identify which links reference specific strokes
+- Removing strokes without their associated link elements causes error 502 ("Invalid element index for the link")
+
+*File vs in-memory state:*
+- `PluginNoteAPI` methods (insertText, saveCurrentNote) operate on in-memory note state
+- `PluginFileAPI` methods (getElements, replaceElements) operate on the .note file directly
+- After `replaceElements`, the display still shows stale in-memory state
+- `PluginCommAPI.reloadFile()` forces the display to sync from file -- required after replaceElements
+- `insertText` must run BEFORE `replaceElements` since replaceElements can sever the note binding (error 105)
+
+*Lasso context lifetime:*
+- Lasso context expires after navigating away from Capture.tsx to TaskAdd
+- `deleteLassoElements()` returns error 904 ("No lasso action has been performed") from TaskAdd
+- Solution: use getElements -> filter by numInPage -> replaceElements instead
+
+*New APIs confirmed on-device:*
+- `PluginCommAPI.lassoElements(rect)` -- programmatically creates lasso selection in pixel coordinates. Works on-device despite not being in TypeScript source.
+- `PluginCommAPI.reloadFile()` -- forces display refresh from file state
+- `PluginNoteAPI.setLassoStrokeLink` supports TextBox elements (type 500), not just strokes -- confirmed via docs and on-device
+
+*insertText vs insertTextLink:*
+- `insertTextLink` creates an atomic link element (type 600) -- breaking the link removes the text entirely
+- `insertText` creates an editable text box (type 500) -- text survives link removal
+- Hybrid approach: insertText + lassoElements + setLassoStrokeLink gives editable text with dashed border + link
+- `textEditable: 0` = editable (not 1, which means NOT editable)
+- `textFrameStyle: 0` = no border (native), `3` = stroke border
+- `textFrameWidthType: 1` = auto width (system sizes to fit content)
+
+*Dashed border behavior:*
+- Dashed border is the link's visual style (style 2 from setLassoStrokeLink)
+- Breaking/removing the link also removes the dashed border -- they are one and the same
+- No known way to have a persistent dashed border without a link via this API
+- Edge case for future investigation: textFrameStyle values beyond 0 and 3
+
+**Code changes:**
+- `TaskAdd.tsx`: Added Mark as Text handler with full pipeline (insertText -> getElements -> filter by numInPage -> replaceElements -> reloadFile -> lassoElements -> setLassoStrokeLink). Configurable font size and Todoist link toggle.
+- `Capture.tsx`: Collects lasso element IDs (uuid, numInPage, type) for later matching in TaskAdd
+- `Config.tsx`: Added "Mark as Text Font Size" picker (24-40) and "Link to Todoist Task" toggle in Preferences
