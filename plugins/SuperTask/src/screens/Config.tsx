@@ -60,6 +60,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [postCreateAction, setPostCreateAction] = useState('prompt');
   const [defaultScreen, setDefaultScreen] = useState('task-home');
   const [debugMode, setDebugMode] = useState(false);
+  const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -75,6 +76,7 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
+      if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
 
       if (config.apiToken) {
         try {
@@ -145,6 +147,7 @@ export default function Config({onNavigate, nav}: Props) {
       postCreateAction,
       defaultScreen,
       debugMode,
+      markAsTextFontSize,
     });
     setSaveStatus('Saved!');
     setTimeout(() => setSaveStatus(''), 2000);
@@ -291,6 +294,27 @@ export default function Config({onNavigate, nav}: Props) {
           </View>
         </View>
       )}
+
+      <View style={styles.divider} />
+
+      <View style={styles.section}>
+        <Text style={styles.label}>Mark as Text Font Size</Text>
+        <View style={styles.optionGroup}>
+          {[24, 28, 32, 36, 40].map(size => (
+            <Pressable
+              key={size}
+              style={[styles.optionButton, markAsTextFontSize === size && styles.optionButtonSelected]}
+              onPress={() => setMarkAsTextFontSize(size)}>
+              <Text style={[styles.optionText, markAsTextFontSize === size && styles.optionTextSelected]}>
+                {size}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          Font size when replacing handwriting with typed text.
+        </Text>
+      </View>
 
       <View style={styles.divider} />
 

@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginNoteAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginNoteAPI, PluginFileAPI, PluginCommAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -68,12 +68,14 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
   const [debugMode, setDebugMode] = useState(false);
   const [markingAsText, setMarkingAsText] = useState(false);
   const [markAsTextDone, setMarkAsTextDone] = useState(false);
+  const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
 
   useEffect(() => {
     log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId} captureMode=${captureMode || 'manual'} initialContent="${(initialContent || '').slice(0, 40)}"`);
     setConfigLoader(loadConfig);
     loadConfig().then(config => {
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
+      if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
       if (config.debugMode) setDebugMode(true);
     });
   }, []);
@@ -225,10 +227,13 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
       // Insert typed text FIRST while note context is still active.
       // replaceElements severs the note binding (error 105 if called after).
-      const textWidth = Math.max(200, bounds.right - bounds.left + 16);
-      const textHeight = Math.max(40, bounds.bottom - bounds.top + 8);
+      // Use native-like parameters: no border, editable, auto width.
+      const fontSize = markAsTextFontSize;
+      const textHeight = Math.round(fontSize * 1.4);
+      const estCharWidth = fontSize * 0.6;
+      const textWidth = Math.max(100, Math.round(content.trim().length * estCharWidth + 20));
 
-      log('TaskAdd', `insertText: l=${bounds.left} t=${bounds.top} w=${textWidth} h=${textHeight} text="${content.trim().slice(0, 40)}"`);
+      log('TaskAdd', `insertText: l=${bounds.left} t=${bounds.top} w=${textWidth} h=${textHeight} fontSize=${fontSize} text="${content.trim().slice(0, 40)}"`);
       const insertResult = await PluginNoteAPI.insertText({
         textContentFull: content.trim(),
         textRect: {
@@ -237,13 +242,13 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
           right: bounds.left + textWidth,
           bottom: bounds.top + textHeight,
         },
-        fontSize: 20,
+        fontSize,
         textBold: 0,
         textAlign: 0,
-        textFrameStyle: 3,
-        textEditable: 1,
+        textFrameStyle: 0,
+        textEditable: 0,
         textItalics: 0,
-        textFrameWidthType: 0,
+        textFrameWidthType: 1,
       });
       log('TaskAdd', `insertText result: ${JSON.stringify(insertResult)}`);
 
@@ -279,6 +284,22 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
           const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
           log('TaskAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
         }
+      }
+
+      // Try to re-lasso the inserted text so the user can move/edit it immediately.
+      // lassoElements is a newer API -- may not be available on all firmware.
+      try {
+        const lassoRect = {
+          left: bounds.left - 4,
+          top: bounds.top - 4,
+          right: bounds.left + textWidth + 4,
+          bottom: bounds.top + textHeight + 4,
+        };
+        log('TaskAdd', `Trying lassoElements: ${JSON.stringify(lassoRect)}`);
+        const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
+        log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
+      } catch (e: any) {
+        log('TaskAdd', `lassoElements not available or failed: ${e.message}`);
       }
 
       setMarkAsTextDone(true);
