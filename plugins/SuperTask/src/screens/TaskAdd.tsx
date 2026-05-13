@@ -225,32 +225,33 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       await PluginNoteAPI.saveCurrentNote();
       log('TaskAdd', 'saveCurrentNote done');
 
-      // Insert typed text FIRST while note context is still active.
+      // Insert typed text as a tappable link FIRST while note context is still active.
       // replaceElements severs the note binding (error 105 if called after).
-      // Use native-like parameters: no border, editable, auto width.
+      // Uses insertTextLink to get dashed border + link icon matching the stroke link.
       const fontSize = markAsTextFontSize;
       const textHeight = Math.round(fontSize * 1.4);
       const estCharWidth = fontSize * 0.6;
       const textWidth = Math.max(100, Math.round(content.trim().length * estCharWidth + 20));
+      const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
 
-      log('TaskAdd', `insertText: l=${bounds.left} t=${bounds.top} w=${textWidth} h=${textHeight} fontSize=${fontSize} text="${content.trim().slice(0, 40)}"`);
-      const insertResult = await PluginNoteAPI.insertText({
-        textContentFull: content.trim(),
-        textRect: {
+      log('TaskAdd', `insertTextLink: l=${bounds.left} t=${bounds.top} w=${textWidth} h=${textHeight} fontSize=${fontSize} text="${content.trim().slice(0, 40)}"`);
+      const insertResult = await PluginNoteAPI.insertTextLink({
+        destPath: taskUrl,
+        destPage: 0,
+        style: 2,
+        linkType: 4,
+        rect: {
           left: bounds.left,
           top: bounds.top,
           right: bounds.left + textWidth,
           bottom: bounds.top + textHeight,
         },
         fontSize,
-        textBold: 0,
-        textAlign: 0,
-        textFrameStyle: 0,
-        textEditable: 0,
-        textItalics: 0,
-        textFrameWidthType: 1,
+        fullText: content.trim(),
+        showText: content.trim(),
+        isItalic: 0,
       });
-      log('TaskAdd', `insertText result: ${JSON.stringify(insertResult)}`);
+      log('TaskAdd', `insertTextLink result: ${JSON.stringify(insertResult)}`);
 
       // Now remove the handwriting strokes via getElements/replaceElements
       if (lassoElementIds?.length && filePath) {
@@ -283,6 +284,15 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
           const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
           log('TaskAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
+
+          // Force display to refresh from file -- replaceElements modifies the file
+          // but the in-memory display state still shows the old strokes.
+          try {
+            const reloadResult = await PluginCommAPI.reloadFile();
+            log('TaskAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
+          } catch (e: any) {
+            log('TaskAdd', `reloadFile failed: ${e.message}`);
+          }
         }
       }
 
