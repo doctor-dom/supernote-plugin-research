@@ -102,30 +102,50 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
       setCreatedTask(task);
 
-      // Auto-mark: apply dashed border on the STILL-ACTIVE original lasso.
-      // No re-lasso needed -- the user's lasso selection persists through the UI.
+      // Auto-mark the handwriting on the STILL-ACTIVE original lasso.
+      // Config ON: dashed border + Todoist link + T badge.
+      // Config OFF: T badge only (no dashed border, no link).
       if (captureMode === 'lasso' && noteContext) {
-        const {filePath, pageNum} = noteContext;
+        const {filePath, pageNum, bounds} = noteContext;
         try {
           setStatus('Marking handwriting...');
+
+          // Config ON: dashed border + Todoist link on the active lasso
           if (markAsTextLink) {
             const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
-            log('TaskAdd', `setLassoStrokeLink: link=${true} destPath=${taskUrl.slice(0, 40)}`);
+            log('TaskAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
             await PluginNoteAPI.setLassoStrokeLink({
               destPath: taskUrl,
               destPage: 0,
               style: 2,
               linkType: 4,
             });
-          } else {
-            log('TaskAdd', `setLassoStrokeLink: link=${false} self-ref`);
-            await PluginNoteAPI.setLassoStrokeLink({
-              destPath: filePath,
-              destPage: pageNum,
-              style: 2,
-              linkType: 0,
-            });
           }
+
+          // Always insert T badge at top-left of handwriting bounds
+          const badgeW = 32;
+          const badgeH = Math.min(32, bounds.bottom - bounds.top + 4);
+          const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
+          const badgeTop = bounds.top;
+          log('TaskAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
+          await PluginNoteAPI.insertText({
+            textContentFull: 'T',
+            textRect: {
+              left: badgeLeft,
+              top: badgeTop,
+              right: badgeLeft + badgeW,
+              bottom: badgeTop + badgeH,
+            },
+            fontSize: 18,
+            textBold: 1,
+            textAlign: 1,
+            textFrameStyle: 3,
+            textEditable: 0,
+            textItalics: 0,
+            textFrameWidthType: 0,
+          });
+          await PluginNoteAPI.saveCurrentNote();
+
           setMarkDone('handwriting');
           log('TaskAdd', `Auto-mark applied (link=${markAsTextLink})`);
         } catch (err: any) {
