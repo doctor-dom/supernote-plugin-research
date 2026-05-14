@@ -95,7 +95,7 @@ if (lassoResult?.success) {
 ### Known issues to investigate
 
 - **OCR failures in QuickAdd** -- User reports consistent "can't read handwriting" errors that don't occur with native recognition. Diagnostic logging added (raw recognizeElements result). Check uploaded logs after next test for the actual error payload. May be related to element count or page context.
-- **Persistent dashed border without link** -- No known way to have dashed border via SDK without a link element. The self-ref note link (linkType 0, destPath = note file) is the workaround for "visual mark only" config.
+- **Dashed border without link icon** -- `setLassoStrokeLink` always creates a link element (type 600) which shows a link icon. No SDK method produces a dashed border without a link. Current workaround: use `setLassoTitle({style: 1})` for a T badge instead. Potential future fix: create a link element via `createElement(600)` + `insertElements` with `style: 2` (dashed border), `controlTrailNums` set to stroke numInPage values, but empty `destPath` -- bypassing `setLassoStrokeLink` validation. Alternatively, use `setLassoStrokeLink` with self-ref then file-level surgery (`getElements`/`replaceElements`) to strip `destPath` from the link element while keeping `style: 2`. Either approach needs on-device testing to confirm the border renders without the icon.
 
 ## To build after Session 10
 

@@ -102,15 +102,19 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
       setCreatedTask(task);
 
-      // Auto-mark: apply dashed border to handwriting immediately
+      // Auto-mark: visually mark the handwriting as captured
       if (captureMode === 'lasso' && noteContext) {
         const {filePath, pageNum, bounds} = noteContext;
         try {
           setStatus('Marking handwriting...');
           await PluginNoteAPI.saveCurrentNote();
-          await applyStrokeLink(bounds, filePath, pageNum);
+          if (markAsTextLink) {
+            await applyStrokeLink(bounds, filePath, pageNum);
+          } else {
+            await applyTitleMark(bounds);
+          }
           setMarkDone('handwriting');
-          log('TaskAdd', 'Auto-mark applied successfully');
+          log('TaskAdd', `Auto-mark applied (link=${markAsTextLink})`);
         } catch (err: any) {
           log('TaskAdd', `Auto-mark failed (non-fatal): ${err.message}`);
         }
@@ -160,29 +164,43 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     }
   };
 
+  const makeLassoRect = (rect: {left: number; top: number; right: number; bottom: number}) => ({
+    left: rect.left - 10,
+    top: rect.top - 10,
+    right: rect.right + 10,
+    bottom: rect.bottom + 10,
+  });
+
   const applyStrokeLink = async (rect: {left: number; top: number; right: number; bottom: number}, filePath: string, pageNum: number) => {
-    const lassoRect = {
-      left: rect.left - 10,
-      top: rect.top - 10,
-      right: rect.right + 10,
-      bottom: rect.bottom + 10,
-    };
-    log('TaskAdd', `lassoElements: ${JSON.stringify(lassoRect)}`);
-    const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
+    const lr = makeLassoRect(rect);
+    log('TaskAdd', `lassoElements: ${JSON.stringify(lr)}`);
+    const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
     log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
 
     if (lassoResult?.success) {
       const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
-      const destPath = markAsTextLink ? taskUrl : filePath || taskUrl;
-      const linkType = markAsTextLink ? 4 : 0;
-      log('TaskAdd', `setLassoStrokeLink: linkEnabled=${markAsTextLink} destPath=${destPath.slice(0, 40)}`);
+      log('TaskAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
       const linkResult = await PluginNoteAPI.setLassoStrokeLink({
-        destPath,
-        destPage: markAsTextLink ? 0 : pageNum,
+        destPath: taskUrl,
+        destPage: 0,
         style: 2,
-        linkType,
+        linkType: 4,
       });
       log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
+    }
+  };
+
+  const applyTitleMark = async (rect: {left: number; top: number; right: number; bottom: number}) => {
+    const lr = makeLassoRect(rect);
+    log('TaskAdd', `applyTitleMark lassoElements: ${JSON.stringify(lr)}`);
+    const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
+    log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
+
+    if (lassoResult?.success) {
+      const titleResult = await PluginNoteAPI.setLassoTitle({style: 1});
+      log('TaskAdd', `setLassoTitle result: ${JSON.stringify(titleResult)}`);
+    } else {
+      log('TaskAdd', `lassoElements for title failed: ${JSON.stringify(lassoResult)}`);
     }
   };
 
@@ -193,11 +211,18 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     setMarking(true);
 
     try {
+      // Dismiss any active lasso from auto-mark before modifying elements
+      try {
+        await (PluginCommAPI as any).setLassoBoxState(2);
+        log('TaskAdd', 'Dismissed active lasso');
+      } catch (e: any) {
+        log('TaskAdd', `setLassoBoxState failed: ${e.message}`);
+      }
+
       await PluginNoteAPI.saveCurrentNote();
       log('TaskAdd', 'saveCurrentNote done');
 
-      // Insert typed text FIRST while note context is still active.
-      // replaceElements severs the note binding (error 105 if called after).
+      // Insert typed text FIRST while note context is still active
       const fontSize = markAsTextFontSize;
       const textHeight = Math.round(fontSize * 1.4);
       const estCharWidth = fontSize * 0.6;
@@ -209,7 +234,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         bottom: bounds.top + textHeight,
       };
 
-      log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} w=${textWidth} h=${textHeight} fontSize=${fontSize} text="${content.trim().slice(0, 40)}"`);
+      log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} w=${textWidth} h=${textHeight} fontSize=${fontSize}`);
       const insertResult = await PluginNoteAPI.insertText({
         textContentFull: content.trim(),
         textRect,
@@ -223,40 +248,34 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       });
       log('TaskAdd', `insertText result: ${JSON.stringify(insertResult)}`);
 
-      // Now remove the handwriting strokes via getElements/replaceElements
+      // Save inserted text to file before file-level operations
+      await PluginNoteAPI.saveCurrentNote();
+      log('TaskAdd', 'saveCurrentNote after insertText');
+
+      // Remove handwriting strokes via getElements/replaceElements
       if (lassoElementIds?.length && filePath) {
         const lassoNums = new Set(lassoElementIds.map(el => el.numInPage));
-        log('TaskAdd', `Lasso numInPage values: [${[...lassoNums].join(',')}]`);
-
         const getResult = await PluginFileAPI.getElements(pageNum, filePath) as any;
         log('TaskAdd', `getElements: success=${getResult?.success} count=${getResult?.result?.length ?? 0}`);
 
         if (getResult?.success && getResult?.result) {
           const pageEls = getResult.result;
-
           const filtered = pageEls.filter((el: any) => {
-            // Remove the matched lasso strokes
             if (lassoNums.has(el.numInPage)) return false;
-            // Remove link elements whose controlTrailNums reference our strokes
             if (el.type === 600 && el.link?.controlTrailNums) {
               const refs: number[] = el.link.controlTrailNums;
-              const overlaps = refs.some((n: number) => lassoNums.has(n));
-              if (overlaps) {
-                log('TaskAdd', `Removing link el numInPage=${el.numInPage} (controlTrailNums overlap with lasso)`);
+              if (refs.some((n: number) => lassoNums.has(n))) {
+                log('TaskAdd', `Removing link el numInPage=${el.numInPage}`);
                 return false;
               }
             }
             return true;
           });
 
-          const removedCount = pageEls.length - filtered.length;
-          log('TaskAdd', `Filtering: ${pageEls.length} total - ${removedCount} removed = ${filtered.length} remaining`);
-
+          log('TaskAdd', `replaceElements: ${pageEls.length} -> ${filtered.length}`);
           const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
           log('TaskAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
 
-          // Force display to refresh from file -- replaceElements modifies the file
-          // but the in-memory display state still shows the old strokes.
           try {
             const reloadResult = await PluginCommAPI.reloadFile();
             log('TaskAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
@@ -266,16 +285,20 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         }
       }
 
-      // Only apply dashed border + link to text if link config is on
+      // Re-lasso the inserted text and apply mark
+      const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
       if (markAsTextLink) {
-        const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
         try {
           await applyStrokeLink(insertedRect, filePath, pageNum);
         } catch (e: any) {
           log('TaskAdd', `applyStrokeLink on text failed: ${e.message}`);
         }
       } else {
-        log('TaskAdd', 'Skipping link on text (markAsTextLink=false)');
+        try {
+          await applyTitleMark(insertedRect);
+        } catch (e: any) {
+          log('TaskAdd', `applyTitleMark on text failed: ${e.message}`);
+        }
       }
 
       setMarkDone('text');
@@ -380,9 +403,12 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     {justCreated ? (
       <View style={styles.overlayCenter}>
         <View style={styles.overlayModal}>
-          <Text style={styles.overlayText}>
-            Task added!{captureMode === 'lasso' && noteContext ? (markDone === 'text' ? ' Converted to text.' : ' Handwriting marked.') : ''}
-          </Text>
+          <Text style={styles.overlayText}>Task added!</Text>
+          {captureMode === 'lasso' && noteContext && (
+            <Text style={[styles.convertedLabel, markDone !== 'text' && {opacity: 0}]}>
+              Handwriting converted to text.
+            </Text>
+          )}
           <View style={styles.overlayButtons}>
             {captureMode === 'lasso' && noteContext && markDone !== 'text' && (
               <Pressable
@@ -521,6 +547,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#000000',
+    textAlign: 'center',
+  },
+  convertedLabel: {
+    fontSize: 14,
+    color: '#666666',
+    textAlign: 'center',
+    marginTop: 4,
   },
   markRow: {
     flexDirection: 'row',

@@ -296,16 +296,22 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       log('QuickAdd', `Created task id=${task?.id}`);
       createdTaskRef.current = task;
 
-      // Auto-mark: apply dashed border to handwriting immediately
+      // Auto-mark: visually mark the handwriting as captured
       const noteContext = noteContextRef.current;
       if (noteContext) {
         const {filePath, pageNum, bounds} = noteContext;
         try {
           setStatusText('Marking handwriting...');
           await PluginNoteAPI.saveCurrentNote();
-          await applyStrokeLink(bounds, filePath, pageNum);
+          if (markAsTextLink) {
+            // Config ON: dashed border + Todoist link
+            await applyStrokeLink(bounds, filePath, pageNum);
+          } else {
+            // Config OFF: T badge only (no link icon)
+            await applyTitleMark(bounds);
+          }
           setMarkDone('handwriting');
-          log('QuickAdd', 'Auto-mark applied successfully');
+          log('QuickAdd', `Auto-mark applied (link=${markAsTextLink})`);
         } catch (err: any) {
           log('QuickAdd', `Auto-mark failed (non-fatal): ${err.message}`);
         }
@@ -319,30 +325,45 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     }
   };
 
+  const lassoRect = (rect: {left: number; top: number; right: number; bottom: number}) => ({
+    left: rect.left - 10,
+    top: rect.top - 10,
+    right: rect.right + 10,
+    bottom: rect.bottom + 10,
+  });
+
   const applyStrokeLink = async (rect: {left: number; top: number; right: number; bottom: number}, filePath: string, pageNum: number) => {
-    const lassoRect = {
-      left: rect.left - 10,
-      top: rect.top - 10,
-      right: rect.right + 10,
-      bottom: rect.bottom + 10,
-    };
-    log('QuickAdd', `lassoElements: ${JSON.stringify(lassoRect)}`);
-    const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
+    const lr = lassoRect(rect);
+    log('QuickAdd', `lassoElements: ${JSON.stringify(lr)}`);
+    const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
+    log('QuickAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
 
     if (lassoResult?.success) {
       const task = createdTaskRef.current;
       const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
-      const destPath = markAsTextLink ? taskUrl : filePath || taskUrl;
-      const linkType = markAsTextLink ? 4 : 0;
-      log('QuickAdd', `setLassoStrokeLink: linkEnabled=${markAsTextLink} destPath=${destPath.slice(0, 40)}`);
+      log('QuickAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
       await PluginNoteAPI.setLassoStrokeLink({
-        destPath,
-        destPage: markAsTextLink ? 0 : pageNum,
+        destPath: taskUrl,
+        destPage: 0,
         style: 2,
-        linkType,
+        linkType: 4,
       });
     } else {
       log('QuickAdd', `lassoElements failed: ${JSON.stringify(lassoResult)}`);
+    }
+  };
+
+  const applyTitleMark = async (rect: {left: number; top: number; right: number; bottom: number}) => {
+    const lr = lassoRect(rect);
+    log('QuickAdd', `applyTitleMark lassoElements: ${JSON.stringify(lr)}`);
+    const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
+    log('QuickAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
+
+    if (lassoResult?.success) {
+      const titleResult = await PluginNoteAPI.setLassoTitle({style: 1});
+      log('QuickAdd', `setLassoTitle result: ${JSON.stringify(titleResult)}`);
+    } else {
+      log('QuickAdd', `lassoElements for title failed: ${JSON.stringify(lassoResult)}`);
     }
   };
 
@@ -354,6 +375,14 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     setMarking(true);
 
     try {
+      // Dismiss any active lasso from auto-mark before modifying elements
+      try {
+        await (PluginCommAPI as any).setLassoBoxState(2);
+        log('QuickAdd', 'Dismissed active lasso');
+      } catch (e: any) {
+        log('QuickAdd', `setLassoBoxState failed: ${e.message}`);
+      }
+
       await PluginNoteAPI.saveCurrentNote();
 
       // Insert typed text FIRST while note context is still active
@@ -381,10 +410,15 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         textFrameWidthType: 1,
       });
 
+      // Save inserted text to file before file-level operations
+      await PluginNoteAPI.saveCurrentNote();
+      log('QuickAdd', 'saveCurrentNote after insertText');
+
       // Remove handwriting strokes via getElements/replaceElements
       if (lassoElementIds?.length && filePath) {
         const lassoNums = new Set(lassoElementIds.map(el => el.numInPage));
         const getResult = await PluginFileAPI.getElements(pageNum, filePath) as any;
+        log('QuickAdd', `getElements: success=${getResult?.success} count=${getResult?.result?.length ?? 0}`);
 
         if (getResult?.success && getResult?.result) {
           const pageEls = getResult.result;
@@ -401,26 +435,32 @@ export default function QuickAdd({nav}: {nav: Nav}) {
           });
 
           log('QuickAdd', `replaceElements: ${pageEls.length} -> ${filtered.length}`);
-          await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
+          const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
+          log('QuickAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
 
           try {
-            await PluginCommAPI.reloadFile();
+            const reloadResult = await PluginCommAPI.reloadFile();
+            log('QuickAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
           } catch (e: any) {
             log('QuickAdd', `reloadFile failed: ${e.message}`);
           }
         }
       }
 
-      // Only apply dashed border + link to text if link config is on
+      // Re-lasso the inserted text and apply mark
+      const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
       if (markAsTextLink) {
-        const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
         try {
           await applyStrokeLink(insertedRect, filePath, pageNum);
         } catch (e: any) {
           log('QuickAdd', `applyStrokeLink on text failed: ${e.message}`);
         }
       } else {
-        log('QuickAdd', 'Skipping link on text (markAsTextLink=false)');
+        try {
+          await applyTitleMark(insertedRect);
+        } catch (e: any) {
+          log('QuickAdd', `applyTitleMark on text failed: ${e.message}`);
+        }
       }
 
       setMarkDone('text');
@@ -484,8 +524,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       const canConvert = noteContextRef.current && markDone !== 'text';
       return (
         <View style={s.panelBody}>
-          <Text style={s.successText}>
-            Task added!{noteContextRef.current ? (markDone === 'text' ? ' Converted to text.' : ' Handwriting marked.') : ''}
+          <Text style={s.successText}>Task added!</Text>
+          <Text style={[s.convertedLabel, markDone !== 'text' && {opacity: 0}]}>
+            Handwriting converted to text.
           </Text>
           <View style={s.successRow}>
             {canConvert && (
@@ -665,6 +706,13 @@ const s = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#000000',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  convertedLabel: {
+    fontSize: 14,
+    color: '#666666',
+    textAlign: 'center',
     marginBottom: 16,
   },
   field: {
@@ -743,8 +791,8 @@ const s = StyleSheet.create({
   successRow: {
     flexDirection: 'row',
     gap: 10,
-    alignSelf: 'stretch',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
   },
   successBtn: {
     paddingVertical: 10,
