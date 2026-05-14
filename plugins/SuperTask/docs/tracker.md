@@ -1,6 +1,6 @@
 # SuperTask: Features & Bugs Tracker
 
-> Active features and bugs for the SuperTask plugin. Each item has a unique ID, type label, status, and optional link to a design doc.
+> Active features, tasks, and bugs for the SuperTask plugin. Each item has a unique ID, type label, status, and optional link to a design doc.
 >
 > **Related docs:**
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
@@ -19,7 +19,13 @@
 | F-004 | Backlog | Task dashboard / master note | -- | Create a note with all captured tasks as linked entries. APIs confirmed ready. |
 | F-005 | Backlog | Doc capture (PDF) | -- | PDF text selection, same flow as lasso handwriting. |
 | F-006 | Backlog | Offline mode | -- | Queue tasks locally, sync to Todoist when wifi available. |
-| F-007 | Backlog | Config persistence | -- | SDK has no writeFile. Blocked until SDK adds file write or alternative found. |
+| F-007 | Open | Config persistence via MyStyle JSON | `design-settings.md` | Ship a JSON config file in MyStyle/ that the plugin reads at startup. User edits via USB. Removes need for gradle-injected config.local.js. See T-001. |
+
+## Tasks
+
+| ID | Status | Title | Design doc | Notes |
+|----|--------|-------|------------|-------|
+| T-001 | Open | Settings page redesign | `design-settings.md` | Compact horizontal layout for e-ink. Connections tab validates API tokens from MyStyle config. Preferences tab uses inline toggles, button rows, and checkbox grids. |
 
 ## Bugs
 
