@@ -102,15 +102,32 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
       setCreatedTask(task);
 
-      // Auto-mark: apply dashed border + Todoist link when config is ON
-      if (captureMode === 'lasso' && noteContext && markAsTextLink) {
-        const {filePath, pageNum, bounds} = noteContext;
+      // Auto-mark: apply dashed border on the STILL-ACTIVE original lasso.
+      // No re-lasso needed -- the user's lasso selection persists through the UI.
+      if (captureMode === 'lasso' && noteContext) {
+        const {filePath, pageNum} = noteContext;
         try {
           setStatus('Marking handwriting...');
-          await PluginNoteAPI.saveCurrentNote();
-          await applyStrokeLink(bounds, filePath, pageNum);
+          if (markAsTextLink) {
+            const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
+            log('TaskAdd', `setLassoStrokeLink: link=${true} destPath=${taskUrl.slice(0, 40)}`);
+            await PluginNoteAPI.setLassoStrokeLink({
+              destPath: taskUrl,
+              destPage: 0,
+              style: 2,
+              linkType: 4,
+            });
+          } else {
+            log('TaskAdd', `setLassoStrokeLink: link=${false} self-ref`);
+            await PluginNoteAPI.setLassoStrokeLink({
+              destPath: filePath,
+              destPage: pageNum,
+              style: 2,
+              linkType: 0,
+            });
+          }
           setMarkDone('handwriting');
-          log('TaskAdd', 'Auto-mark applied');
+          log('TaskAdd', `Auto-mark applied (link=${markAsTextLink})`);
         } catch (err: any) {
           log('TaskAdd', `Auto-mark failed (non-fatal): ${err.message}`);
         }
@@ -166,25 +183,6 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     right: rect.right + 10,
     bottom: rect.bottom + 10,
   });
-
-  const applyStrokeLink = async (rect: {left: number; top: number; right: number; bottom: number}, filePath: string, pageNum: number) => {
-    const lr = makeLassoRect(rect);
-    log('TaskAdd', `lassoElements: ${JSON.stringify(lr)}`);
-    const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
-    log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
-
-    if (lassoResult?.success) {
-      const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
-      log('TaskAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
-      const linkResult = await PluginNoteAPI.setLassoStrokeLink({
-        destPath: taskUrl,
-        destPage: 0,
-        style: 2,
-        linkType: 4,
-      });
-      log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
-    }
-  };
 
   const handleConvertToText = async () => {
     if (!noteContext) return;
@@ -242,21 +240,25 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
         if (getResult?.success && getResult?.result) {
           const pageEls = getResult.result;
-          const filtered = pageEls.filter((el: any) => {
-            if (lassoNums.has(el.numInPage)) return false;
-            // Remove link elements (type 600) referencing our strokes
+
+          // Pass 1: Remove lasso strokes
+          let filtered = pageEls.filter((el: any) => !lassoNums.has(el.numInPage));
+          log('TaskAdd', `After stroke removal: ${pageEls.length} -> ${filtered.length}`);
+
+          // Pass 2: Remove link/title elements with dangling controlTrailNums references
+          const remainingNums = new Set(filtered.map((el: any) => el.numInPage));
+          filtered = filtered.filter((el: any) => {
             if (el.type === 600 && el.link?.controlTrailNums) {
               const refs: number[] = el.link.controlTrailNums;
-              if (refs.some((n: number) => lassoNums.has(n))) {
-                log('TaskAdd', `Removing link el numInPage=${el.numInPage}`);
+              if (refs.some((n: number) => !remainingNums.has(n))) {
+                log('TaskAdd', `Removing link el numInPage=${el.numInPage} (dangling ref)`);
                 return false;
               }
             }
-            // Remove title elements (type 100) referencing our strokes
             if (el.type === 100 && el.title?.controlTrailNums) {
               const refs: number[] = el.title.controlTrailNums;
-              if (refs.some((n: number) => lassoNums.has(n))) {
-                log('TaskAdd', `Removing title el numInPage=${el.numInPage}`);
+              if (refs.some((n: number) => !remainingNums.has(n))) {
+                log('TaskAdd', `Removing title el numInPage=${el.numInPage} (dangling ref)`);
                 return false;
               }
             }
@@ -276,7 +278,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         }
       }
 
-      // Re-lasso the inserted text so user can move/edit it
+      // Re-lasso the inserted text and apply dashed border mark
       const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
       try {
         const lr = makeLassoRect(insertedRect);
@@ -284,16 +286,30 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
         log('TaskAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
 
-        // If link config is on, apply dashed border + Todoist link to the text
-        if (markAsTextLink && reLassoResult?.success) {
-          const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
-          await PluginNoteAPI.setLassoStrokeLink({
-            destPath: taskUrl,
-            destPage: 0,
-            style: 2,
-            linkType: 4,
-          });
-          log('TaskAdd', 'Applied link to converted text');
+        if (reLassoResult?.success) {
+          if (markAsTextLink) {
+            const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
+            await PluginNoteAPI.setLassoStrokeLink({
+              destPath: taskUrl,
+              destPage: 0,
+              style: 2,
+              linkType: 4,
+            });
+            log('TaskAdd', 'Applied Todoist link to converted text');
+          } else {
+            await PluginNoteAPI.setLassoStrokeLink({
+              destPath: filePath,
+              destPage: pageNum,
+              style: 2,
+              linkType: 0,
+            });
+            log('TaskAdd', 'Applied self-ref mark to converted text');
+          }
+
+          // Dismiss re-lasso to avoid leaving the lasso action bar open
+          try {
+            await (PluginCommAPI as any).setLassoBoxState(2);
+          } catch {}
         }
       } catch (e: any) {
         log('TaskAdd', `Re-lasso failed: ${e.message}`);
