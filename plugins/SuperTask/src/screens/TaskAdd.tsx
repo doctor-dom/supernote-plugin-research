@@ -102,6 +102,20 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
       setCreatedTask(task);
 
+      // Auto-mark: apply dashed border to handwriting immediately
+      if (captureMode === 'lasso' && noteContext) {
+        const {filePath, pageNum, bounds} = noteContext;
+        try {
+          setStatus('Marking handwriting...');
+          await PluginNoteAPI.saveCurrentNote();
+          await applyStrokeLink(bounds, filePath, pageNum);
+          setMarkDone('handwriting');
+          log('TaskAdd', 'Auto-mark applied successfully');
+        } catch (err: any) {
+          log('TaskAdd', `Auto-mark failed (non-fatal): ${err.message}`);
+        }
+      }
+
       setSubmitting(false);
       if (postCreateAction === 'auto-back') {
         setStatus('Task added!');
@@ -172,27 +186,10 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     }
   };
 
-  const handleMark = async () => {
-    if (!noteContext) return;
-    const {filePath, pageNum, bounds} = noteContext;
-    log('TaskAdd', 'MARK (handwriting) pressed');
-    setMarking(true);
-
-    try {
-      await PluginNoteAPI.saveCurrentNote();
-      await applyStrokeLink(bounds, filePath, pageNum);
-      setMarkDone('handwriting');
-    } catch (err: any) {
-      logError('TaskAdd', `Mark handwriting failed: ${err.message}`);
-    } finally {
-      setMarking(false);
-    }
-  };
-
-  const handleMarkAsText = async () => {
+  const handleConvertToText = async () => {
     if (!noteContext) return;
     const {filePath, pageNum, bounds, lassoElementIds} = noteContext;
-    log('TaskAdd', `MARK AS TEXT pressed lassoIds=${lassoElementIds?.length ?? 0}`);
+    log('TaskAdd', `CONVERT TO TEXT pressed lassoIds=${lassoElementIds?.length ?? 0}`);
     setMarking(true);
 
     try {
@@ -279,7 +276,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
       setMarkDone('text');
     } catch (err: any) {
-      logError('TaskAdd', `Mark as text failed: ${err.message}`);
+      logError('TaskAdd', `Convert to text failed: ${err.message}`);
     } finally {
       setMarking(false);
     }
@@ -380,30 +377,20 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       <View style={styles.overlayCenter}>
         <View style={styles.overlayModal}>
           <Text style={styles.overlayText}>Task added!</Text>
-          {captureMode === 'lasso' && noteContext && markDone !== 'none' && (
+          {captureMode === 'lasso' && noteContext && (
             <Text style={styles.markDoneLabel}>
-              {markDone === 'handwriting' ? 'Marked' : 'Marked as text'}
+              {markDone === 'text' ? 'Converted to text' : 'Handwriting marked'}
             </Text>
           )}
-          {captureMode === 'lasso' && noteContext && markDone === 'none' && (
-            <View style={styles.markRow}>
-              <Pressable
-                style={[styles.markButton, {flex: 1}]}
-                onPress={handleMark}
-                disabled={marking}>
-                <Text style={styles.markButtonText}>
-                  {marking ? 'Marking...' : 'Mark'}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.markButton, styles.markButtonDashed, {flex: 1}]}
-                onPress={handleMarkAsText}
-                disabled={marking}>
-                <Text style={styles.markButtonText}>
-                  {marking ? 'Marking...' : 'Mark as Text'}
-                </Text>
-              </Pressable>
-            </View>
+          {captureMode === 'lasso' && noteContext && markDone !== 'text' && (
+            <Pressable
+              style={[styles.markButton, styles.markButtonDashed]}
+              onPress={handleConvertToText}
+              disabled={marking}>
+              <Text style={styles.markButtonText}>
+                {marking ? 'Converting...' : 'Convert to Text'}
+              </Text>
+            </Pressable>
           )}
           <View style={styles.overlayButtons}>
             <Pressable style={styles.overlayButton} onPress={handleAddAnother}>

@@ -286,6 +286,21 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       log('QuickAdd', `Created task id=${task?.id}`);
       createdTaskRef.current = task;
 
+      // Auto-mark: apply dashed border to handwriting immediately
+      const noteContext = noteContextRef.current;
+      if (noteContext) {
+        const {filePath, pageNum, bounds} = noteContext;
+        try {
+          setStatusText('Marking handwriting...');
+          await PluginNoteAPI.saveCurrentNote();
+          await applyStrokeLink(bounds, filePath, pageNum);
+          setMarkDone('handwriting');
+          log('QuickAdd', 'Auto-mark applied successfully');
+        } catch (err: any) {
+          log('QuickAdd', `Auto-mark failed (non-fatal): ${err.message}`);
+        }
+      }
+
       setPhase('success');
     } catch (err: any) {
       logError('QuickAdd', err);
@@ -321,29 +336,11 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     }
   };
 
-  const handleMark = async () => {
-    const noteContext = noteContextRef.current;
-    if (!noteContext) return;
-    const {filePath, pageNum, bounds} = noteContext;
-    log('QuickAdd', 'MARK (handwriting) pressed');
-    setMarking(true);
-
-    try {
-      await PluginNoteAPI.saveCurrentNote();
-      await applyStrokeLink(bounds, filePath, pageNum);
-      setMarkDone('handwriting');
-    } catch (err: any) {
-      logError('QuickAdd', `Mark handwriting failed: ${err.message}`);
-    } finally {
-      setMarking(false);
-    }
-  };
-
-  const handleMarkAsText = async () => {
+  const handleConvertToText = async () => {
     const noteContext = noteContextRef.current;
     if (!noteContext) return;
     const {filePath, pageNum, bounds, lassoElementIds} = noteContext;
-    log('QuickAdd', `MARK AS TEXT pressed lassoIds=${lassoElementIds?.length ?? 0}`);
+    log('QuickAdd', `CONVERT TO TEXT pressed lassoIds=${lassoElementIds?.length ?? 0}`);
     setMarking(true);
 
     try {
@@ -414,7 +411,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
 
       setMarkDone('text');
     } catch (err: any) {
-      logError('QuickAdd', `Mark as text failed: ${err.message}`);
+      logError('QuickAdd', `Convert to text failed: ${err.message}`);
     } finally {
       setMarking(false);
     }
@@ -470,34 +467,24 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     }
 
     if (phase === 'success') {
-      const canMark = noteContextRef.current && markDone === 'none';
+      const canConvert = noteContextRef.current && markDone !== 'text';
       return (
         <View style={s.panelBody}>
           <Text style={s.successText}>Task added!</Text>
-          {noteContextRef.current && markDone !== 'none' && (
+          {noteContextRef.current && (
             <Text style={s.markDoneLabel}>
-              {markDone === 'handwriting' ? 'Marked' : 'Marked as text'}
+              {markDone === 'text' ? 'Converted to text' : 'Handwriting marked'}
             </Text>
           )}
-          {canMark && (
-            <View style={s.markRow}>
-              <Pressable
-                style={[s.markBtn, {flex: 1}]}
-                onPress={handleMark}
-                disabled={marking}>
-                <Text style={s.markBtnText}>
-                  {marking ? 'Marking...' : 'Mark'}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[s.markBtn, s.markBtnDashed, {flex: 1}]}
-                onPress={handleMarkAsText}
-                disabled={marking}>
-                <Text style={s.markBtnText}>
-                  {marking ? 'Marking...' : 'Mark as Text'}
-                </Text>
-              </Pressable>
-            </View>
+          {canConvert && (
+            <Pressable
+              style={[s.markBtn, s.markBtnDashed]}
+              onPress={handleConvertToText}
+              disabled={marking}>
+              <Text style={s.markBtnText}>
+                {marking ? 'Converting...' : 'Convert to Text'}
+              </Text>
+            </Pressable>
           )}
           <Pressable style={s.viewTasksBtn} onPress={handleViewTasks}>
             <Text style={s.viewTasksBtnText}>View Tasks</Text>
