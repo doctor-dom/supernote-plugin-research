@@ -8,6 +8,15 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 - **Design docs** (`docs/`) -- architecture analysis and plugin design documents
 - **Plugins** (`plugins/`) -- each plugin is a standalone React Native project
 
+### Per-plugin documentation structure
+Each plugin under `plugins/<Name>/` follows this doc architecture:
+- **`PROGRESS.md`** -- session handoff state (what happened, what's next, current build)
+- **`docs/tracker.md`** -- active features and bugs with unique IDs (F-001, B-001)
+- **`docs/changelog.md`** -- archive of completed/resolved items (moved from tracker)
+- **`docs/design-*.md`** -- deep dives on specific features or subsystems
+
+When a tracked item is completed, move it from `tracker.md` to `changelog.md` with the date and outcome. Design docs cross-reference each other and the tracker via their headers.
+
 ## Plugin development practices
 
 ### Creating a new plugin

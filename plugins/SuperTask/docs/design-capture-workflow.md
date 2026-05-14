@@ -1,5 +1,13 @@
 # SuperTask: Capture Workflow Design
 
+> End-to-end lasso capture and task creation flow.
+>
+> **Related docs:**
+> - Tracker: `docs/tracker.md` -- active features and bugs
+> - Changelog: `docs/changelog.md` -- completed/resolved items
+> - Linking design: `docs/design-task-linking.md` -- marking and linking
+> - Marker design: `docs/design-task-markers.md` -- T badge / inline markers
+
 ## Problem
 
 The current lasso capture flow has friction and reliability issues:

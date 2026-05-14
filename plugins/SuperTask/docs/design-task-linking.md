@@ -1,5 +1,13 @@
 # SuperTask: Task Linking & Dashboard Design
 
+> How tasks are connected between the note page and Todoist. Covers visual marking, link styles, and dashboard concepts.
+>
+> **Related docs:**
+> - Tracker: `docs/tracker.md` -- active features and bugs
+> - Changelog: `docs/changelog.md` -- completed/resolved items
+> - Capture design: `docs/design-capture-workflow.md` -- capture flow
+> - Marker design: `docs/design-task-markers.md` -- T badge / inline markers
+
 ## Problem
 
 After capturing a task from handwriting, how do we:
