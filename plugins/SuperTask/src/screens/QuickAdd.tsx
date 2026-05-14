@@ -305,8 +305,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       });
 
       // Step 4: Insert T badge relative to the text we just inserted
+      // Gap of 20px keeps badge outside the 10px lasso padding on re-lasso
       const badgeW = 26, badgeH = 26;
-      const badgeLeft = Math.max(0, textRect.left - badgeW - 8);
+      const badgeLeft = Math.max(0, textRect.left - badgeW - 20);
       const badgeTop = textRect.top;
       log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop}`);
       await PluginNoteAPI.insertText({
@@ -321,28 +322,37 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         textFrameWidthType: 0,
       });
 
-      // Step 5: Save, then re-lasso the inserted text for repositioning
+      // Step 5: Save
       await PluginNoteAPI.saveCurrentNote();
       log('QuickAdd', 'saveCurrentNote after convert');
 
+      // Step 6: Config ON -- lasso text to apply link, then re-lasso for repositioning
+      // Config OFF -- just lasso for repositioning
       try {
+        if (markAsTextLink) {
+          // First lasso: apply the Todoist link (this may dismiss the lasso)
+          const lr = lassoRect(textRect);
+          log('QuickAdd', `Lasso for link: ${JSON.stringify(lr)}`);
+          const linkLasso = await (PluginCommAPI as any).lassoElements(lr);
+          if (linkLasso?.success) {
+            const task = createdTaskRef.current;
+            const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
+            await PluginNoteAPI.setLassoStrokeLink({
+              destPath: taskUrl,
+              destPage: 0,
+              style: 2,
+              linkType: 4,
+            });
+            log('QuickAdd', 'Applied Todoist link to converted text');
+            await PluginNoteAPI.saveCurrentNote();
+          }
+        }
+
+        // Final lasso: select the text for repositioning (persists after plugin closes)
         const lr = lassoRect(textRect);
         log('QuickAdd', `Re-lasso text: ${JSON.stringify(lr)}`);
         const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
         log('QuickAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
-
-        // Config ON: apply dashed border + Todoist link to the converted text
-        if (markAsTextLink && reLassoResult?.success) {
-          const task = createdTaskRef.current;
-          const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
-          await PluginNoteAPI.setLassoStrokeLink({
-            destPath: taskUrl,
-            destPage: 0,
-            style: 2,
-            linkType: 4,
-          });
-          log('QuickAdd', 'Applied Todoist link to converted text');
-        }
       } catch (e: any) {
         log('QuickAdd', `Re-lasso text failed: ${e.message}`);
       }
@@ -358,50 +368,69 @@ export default function QuickAdd({nav}: {nav: Nav}) {
   const handleDone = async () => {
     log('QuickAdd', 'DONE pressed');
 
-    // If convert-to-text already ran, marks are applied -- just close.
-    // Otherwise apply auto-mark on the still-active original lasso.
-    if (markDone === 'none' && createdTaskRef.current && noteContextRef.current) {
-      const {bounds} = noteContextRef.current;
-      const task = createdTaskRef.current;
-      try {
-        // Config ON: dashed border + Todoist link on the active lasso
-        if (markAsTextLink) {
-          const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
-          log('QuickAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
-          await PluginNoteAPI.setLassoStrokeLink({
-            destPath: taskUrl,
-            destPage: 0,
-            style: 2,
-            linkType: 4,
-          });
-        }
+    // If convert is in progress, ignore Done press
+    if (marking) {
+      log('QuickAdd', 'Ignoring Done -- convert in progress');
+      return;
+    }
 
-        // Insert T badge just left of the lasso rect
-        const badgeW = 26, badgeH = 26;
-        const badgeLeft = Math.max(0, bounds.left - badgeW - 8);
-        const badgeTop = bounds.top;
-        log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop}`);
-        await PluginNoteAPI.insertText({
-          textContentFull: 'T',
-          textRect: {
-            left: badgeLeft,
-            top: badgeTop,
-            right: badgeLeft + badgeW,
-            bottom: badgeTop + badgeH,
-          },
-          fontSize: 18,
-          textBold: 1,
-          textAlign: 1,
-          textFrameStyle: 3,
-          textEditable: 0,
-          textItalics: 0,
-          textFrameWidthType: 0,
+    // If convert-to-text already ran, marks are applied -- just close.
+    if (markDone !== 'none' || !createdTaskRef.current || !noteContextRef.current) {
+      PluginManager.closePluginView();
+      return;
+    }
+
+    // Apply auto-mark on the still-active original lasso.
+    const {bounds} = noteContextRef.current;
+    const task = createdTaskRef.current;
+    try {
+      // Config ON: dashed border + Todoist link on the active lasso
+      if (markAsTextLink) {
+        const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
+        log('QuickAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
+        await PluginNoteAPI.setLassoStrokeLink({
+          destPath: taskUrl,
+          destPage: 0,
+          style: 2,
+          linkType: 4,
         });
-        await PluginNoteAPI.saveCurrentNote();
-        log('QuickAdd', `Auto-mark applied on Done (link=${markAsTextLink})`);
-      } catch (err: any) {
-        log('QuickAdd', `Auto-mark on Done failed (non-fatal): ${err.message}`);
       }
+
+      // Insert T badge just left of the lasso rect
+      const badgeW = 26, badgeH = 26;
+      const badgeLeft = Math.max(0, bounds.left - badgeW - 20);
+      const badgeTop = bounds.top;
+      log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop}`);
+      await PluginNoteAPI.insertText({
+        textContentFull: 'T',
+        textRect: {
+          left: badgeLeft,
+          top: badgeTop,
+          right: badgeLeft + badgeW,
+          bottom: badgeTop + badgeH,
+        },
+        fontSize: 18,
+        textBold: 1,
+        textAlign: 1,
+        textFrameStyle: 3,
+        textEditable: 0,
+        textItalics: 0,
+        textFrameWidthType: 0,
+      });
+      await PluginNoteAPI.saveCurrentNote();
+      log('QuickAdd', `Auto-mark applied on Done (link=${markAsTextLink})`);
+
+      // Re-lasso the handwriting so user can reposition after plugin closes
+      try {
+        const lr = lassoRect(bounds);
+        log('QuickAdd', `Re-lasso handwriting: ${JSON.stringify(lr)}`);
+        const reLasso = await (PluginCommAPI as any).lassoElements(lr);
+        log('QuickAdd', `Re-lasso result: ${JSON.stringify(reLasso)}`);
+      } catch (e: any) {
+        log('QuickAdd', `Re-lasso failed: ${e.message}`);
+      }
+    } catch (err: any) {
+      log('QuickAdd', `Auto-mark on Done failed (non-fatal): ${err.message}`);
     }
 
     PluginManager.closePluginView();
@@ -473,7 +502,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
             <Pressable style={s.successBtn} onPress={handleViewTasks}>
               <Text style={s.successBtnText}>View Tasks</Text>
             </Pressable>
-            <Pressable style={[s.successBtn, s.successBtnPrimary]} onPress={handleDone}>
+            <Pressable style={[s.successBtn, s.successBtnPrimary]} onPress={handleDone} disabled={marking}>
               <Text style={[s.successBtnText, s.successBtnPrimaryText]}>Done</Text>
             </Pressable>
           </View>
