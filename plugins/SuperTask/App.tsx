@@ -26,6 +26,7 @@ import {loadConfig} from './src/utils/config';
 type ScreenEntry = {
   name: string;
   params?: Record<string, any>;
+  id: number;
 };
 
 // Read the initial button ID set by index.js before React mounted
@@ -33,11 +34,13 @@ function getInitialScreen(): ScreenEntry {
   const raw = global.__superTaskButtonId;
   // Coerce to number for comparison -- SDK may pass string or number
   const buttonId = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
-  if (buttonId === 200) return {name: 'capture-lasso'};
-  if (buttonId === 300) return {name: 'capture-doc'};
-  if (raw === 'config') return {name: 'config'};
-  return {name: 'task-home'};
+  if (buttonId === 200) return {name: 'capture-lasso', id: 0};
+  if (buttonId === 300) return {name: 'capture-doc', id: 0};
+  if (raw === 'config') return {name: 'config', id: 0};
+  return {name: 'task-home', id: 0};
 }
+
+let navIdCounter = 0;
 
 function App(): React.JSX.Element {
   const [screenStack, setScreenStack] = useState<ScreenEntry[]>([getInitialScreen()]);
@@ -48,7 +51,7 @@ function App(): React.JSX.Element {
 
   const push = useCallback((name: string, params?: Record<string, any>) => {
     log('App', `push: ${name} ${params ? JSON.stringify(params) : ''}`);
-    setScreenStack(prev => [...prev, {name, params}]);
+    setScreenStack(prev => [...prev, {name, params, id: ++navIdCounter}]);
   }, []);
 
   const pop = useCallback(() => {
@@ -61,12 +64,12 @@ function App(): React.JSX.Element {
 
   const replace = useCallback((name: string, params?: Record<string, any>) => {
     log('App', `replace: ${name}`);
-    setScreenStack(prev => [...prev.slice(0, -1), {name, params}]);
+    setScreenStack(prev => [...prev.slice(0, -1), {name, params, id: ++navIdCounter}]);
   }, []);
 
   const resetTo = useCallback((name: string, params?: Record<string, any>) => {
     log('App', `resetTo: ${name}`);
-    setScreenStack([{name, params}]);
+    setScreenStack([{name, params, id: ++navIdCounter}]);
   }, []);
 
   resetToRef.current = resetTo;
@@ -176,16 +179,17 @@ function App(): React.JSX.Element {
   return (
     <View style={[styles.container, isOverlay && styles.containerOverlay]}>
       {current.name === 'task-home' && (
-        <TaskHome nav={nav} />
+        <TaskHome key={current.id} nav={nav} />
       )}
       {current.name === 'project-view' && (
-        <ProjectView nav={nav} projectId={current.params?.projectId} projectName={current.params?.projectName} />
+        <ProjectView key={current.id} nav={nav} projectId={current.params?.projectId} projectName={current.params?.projectName} />
       )}
       {current.name === 'task-detail' && (
-        <TaskDetail nav={nav} task={current.params?.task} projects={current.params?.projects} />
+        <TaskDetail key={current.id} nav={nav} task={current.params?.task} projects={current.params?.projects} />
       )}
       {current.name === 'task-add' && (
         <TaskAdd
+          key={current.id}
           nav={nav}
           projects={current.params?.projects || []}
           defaultProjectId={current.params?.defaultProjectId}
@@ -196,16 +200,16 @@ function App(): React.JSX.Element {
         />
       )}
       {current.name === 'capture-lasso' && (
-        <QuickAdd nav={nav} />
+        <QuickAdd key={current.id} nav={nav} />
       )}
       {current.name === 'capture-doc' && (
-        <Capture mode="doc" nav={nav} />
+        <Capture key={current.id} mode="doc" nav={nav} />
       )}
       {current.name === 'config' && (
-        <Config onNavigate={(s: string) => resetTo(s)} nav={nav} />
+        <Config key={current.id} onNavigate={(s: string) => resetTo(s)} nav={nav} />
       )}
       {current.name === 'diagnostics' && (
-        <Diagnostics nav={nav} />
+        <Diagnostics key={current.id} nav={nav} />
       )}
     </View>
   );
