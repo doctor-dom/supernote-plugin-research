@@ -222,16 +222,26 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         if (!el.stroke?.points?._size) continue;
         try {
           const pts = el.stroke.points;
-          const first = await pts.get(0);
-          const last = await pts.get(pts._size - 1);
-          for (const pt of [first, last]) {
-            if (pt?.x !== undefined && pt?.y !== undefined) {
-              if (pt.x < sMinX) sMinX = pt.x;
-              if (pt.x > sMaxX) sMaxX = pt.x;
-              if (pt.y < sMinY) sMinY = pt.y;
-              if (pt.y > sMaxY) sMaxY = pt.y;
-              pointsRead++;
+          const size = pts._size;
+          // Sample evenly: first, last, and up to 8 intermediate points
+          const indices = [0, size - 1];
+          if (size > 2) {
+            const step = Math.max(1, Math.floor(size / 8));
+            for (let i = step; i < size - 1; i += step) {
+              indices.push(i);
             }
+          }
+          for (const idx of indices) {
+            try {
+              const pt = await pts.get(idx);
+              if (pt?.x !== undefined && pt?.y !== undefined) {
+                if (pt.x < sMinX) sMinX = pt.x;
+                if (pt.x > sMaxX) sMaxX = pt.x;
+                if (pt.y < sMinY) sMinY = pt.y;
+                if (pt.y > sMaxY) sMaxY = pt.y;
+                pointsRead++;
+              }
+            } catch {}
           }
         } catch (e: any) {
           log('QuickAdd', `Stroke point read error: ${e.message}`);
@@ -249,7 +259,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
           right: Math.max(pxLeft, pxRight),
           bottom: Math.max(pxTop, pxBottom),
         };
-        log('QuickAdd', `Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom}`);
+        log('QuickAdd', `Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom} (${pointsRead} points sampled)`);
       }
     } catch (e: any) {
       log('QuickAdd', `Bounds calc failed: ${e.message}`);
@@ -311,10 +321,10 @@ export default function QuickAdd({nav}: {nav: Nav}) {
 
   const applyStrokeLink = async (rect: {left: number; top: number; right: number; bottom: number}, filePath: string, pageNum: number) => {
     const lassoRect = {
-      left: rect.left - 4,
-      top: rect.top - 4,
-      right: rect.right + 4,
-      bottom: rect.bottom + 4,
+      left: rect.left - 10,
+      top: rect.top - 10,
+      right: rect.right + 10,
+      bottom: rect.bottom + 10,
     };
     log('QuickAdd', `lassoElements: ${JSON.stringify(lassoRect)}`);
     const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
@@ -401,12 +411,16 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         }
       }
 
-      // Re-lasso the inserted text and apply dashed border
-      const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
-      try {
-        await applyStrokeLink(insertedRect, filePath, pageNum);
-      } catch (e: any) {
-        log('QuickAdd', `applyStrokeLink on text failed: ${e.message}`);
+      // Only apply dashed border + link to text if link config is on
+      if (markAsTextLink) {
+        const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
+        try {
+          await applyStrokeLink(insertedRect, filePath, pageNum);
+        } catch (e: any) {
+          log('QuickAdd', `applyStrokeLink on text failed: ${e.message}`);
+        }
+      } else {
+        log('QuickAdd', 'Skipping link on text (markAsTextLink=false)');
       }
 
       setMarkDone('text');
@@ -470,28 +484,27 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       const canConvert = noteContextRef.current && markDone !== 'text';
       return (
         <View style={s.panelBody}>
-          <Text style={s.successText}>Task added!</Text>
-          {noteContextRef.current && (
-            <Text style={s.markDoneLabel}>
-              {markDone === 'text' ? 'Converted to text' : 'Handwriting marked'}
-            </Text>
-          )}
-          {canConvert && (
-            <Pressable
-              style={[s.markBtn, s.markBtnDashed]}
-              onPress={handleConvertToText}
-              disabled={marking}>
-              <Text style={s.markBtnText}>
-                {marking ? 'Converting...' : 'Convert to Text'}
-              </Text>
+          <Text style={s.successText}>
+            Task added!{noteContextRef.current ? (markDone === 'text' ? ' Converted to text.' : ' Handwriting marked.') : ''}
+          </Text>
+          <View style={s.successRow}>
+            {canConvert && (
+              <Pressable
+                style={s.successBtn}
+                onPress={handleConvertToText}
+                disabled={marking}>
+                <Text style={s.successBtnText}>
+                  {marking ? 'Converting...' : 'Convert to Text'}
+                </Text>
+              </Pressable>
+            )}
+            <Pressable style={s.successBtn} onPress={handleViewTasks}>
+              <Text style={s.successBtnText}>View Tasks</Text>
             </Pressable>
-          )}
-          <Pressable style={s.viewTasksBtn} onPress={handleViewTasks}>
-            <Text style={s.viewTasksBtnText}>View Tasks</Text>
-          </Pressable>
-          <Pressable style={s.doneBtn} onPress={handleDone}>
-            <Text style={s.doneBtnText}>Done</Text>
-          </Pressable>
+            <Pressable style={[s.successBtn, s.successBtnPrimary]} onPress={handleDone}>
+              <Text style={[s.successBtnText, s.successBtnPrimaryText]}>Done</Text>
+            </Pressable>
+          </View>
         </View>
       );
     }
@@ -727,39 +740,29 @@ const s = StyleSheet.create({
     fontWeight: '700',
     color: '#000000',
   },
-  markDoneLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#666666',
-    marginBottom: 12,
+  successRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignSelf: 'stretch',
+    justifyContent: 'flex-end',
   },
-  viewTasksBtn: {
-    paddingVertical: 12,
+  successBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     alignItems: 'center',
-    alignSelf: 'stretch',
-    marginBottom: 12,
   },
-  viewTasksBtnText: {
-    fontSize: 15,
+  successBtnText: {
+    fontSize: 14,
     fontWeight: '700',
     color: '#000000',
   },
-  doneBtn: {
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderWidth: 2,
-    borderColor: '#000000',
-    borderRadius: 4,
-    alignItems: 'center',
+  successBtnPrimary: {
     backgroundColor: '#000000',
-    alignSelf: 'stretch',
   },
-  doneBtnText: {
-    fontSize: 17,
-    fontWeight: '700',
+  successBtnPrimaryText: {
     color: '#ffffff',
   },
 });

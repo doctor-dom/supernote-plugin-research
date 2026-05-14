@@ -162,10 +162,10 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const applyStrokeLink = async (rect: {left: number; top: number; right: number; bottom: number}, filePath: string, pageNum: number) => {
     const lassoRect = {
-      left: rect.left - 4,
-      top: rect.top - 4,
-      right: rect.right + 4,
-      bottom: rect.bottom + 4,
+      left: rect.left - 10,
+      top: rect.top - 10,
+      right: rect.right + 10,
+      bottom: rect.bottom + 10,
     };
     log('TaskAdd', `lassoElements: ${JSON.stringify(lassoRect)}`);
     const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
@@ -266,12 +266,16 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         }
       }
 
-      // Re-lasso the inserted text and apply dashed border
-      const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
-      try {
-        await applyStrokeLink(insertedRect, filePath, pageNum);
-      } catch (e: any) {
-        log('TaskAdd', `applyStrokeLink on text failed: ${e.message}`);
+      // Only apply dashed border + link to text if link config is on
+      if (markAsTextLink) {
+        const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
+        try {
+          await applyStrokeLink(insertedRect, filePath, pageNum);
+        } catch (e: any) {
+          log('TaskAdd', `applyStrokeLink on text failed: ${e.message}`);
+        }
+      } else {
+        log('TaskAdd', 'Skipping link on text (markAsTextLink=false)');
       }
 
       setMarkDone('text');
@@ -376,23 +380,20 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     {justCreated ? (
       <View style={styles.overlayCenter}>
         <View style={styles.overlayModal}>
-          <Text style={styles.overlayText}>Task added!</Text>
-          {captureMode === 'lasso' && noteContext && (
-            <Text style={styles.markDoneLabel}>
-              {markDone === 'text' ? 'Converted to text' : 'Handwriting marked'}
-            </Text>
-          )}
-          {captureMode === 'lasso' && noteContext && markDone !== 'text' && (
-            <Pressable
-              style={[styles.markButton, styles.markButtonDashed]}
-              onPress={handleConvertToText}
-              disabled={marking}>
-              <Text style={styles.markButtonText}>
-                {marking ? 'Converting...' : 'Convert to Text'}
-              </Text>
-            </Pressable>
-          )}
+          <Text style={styles.overlayText}>
+            Task added!{captureMode === 'lasso' && noteContext ? (markDone === 'text' ? ' Converted to text.' : ' Handwriting marked.') : ''}
+          </Text>
           <View style={styles.overlayButtons}>
+            {captureMode === 'lasso' && noteContext && markDone !== 'text' && (
+              <Pressable
+                style={styles.overlayButton}
+                onPress={handleConvertToText}
+                disabled={marking}>
+                <Text style={styles.overlayButtonText}>
+                  {marking ? 'Converting...' : 'Convert to Text'}
+                </Text>
+              </Pressable>
+            )}
             <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
               <Text style={styles.overlayButtonText}>Add Another</Text>
             </Pressable>
