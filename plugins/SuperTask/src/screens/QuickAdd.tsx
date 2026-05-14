@@ -296,22 +296,16 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       log('QuickAdd', `Created task id=${task?.id}`);
       createdTaskRef.current = task;
 
-      // Auto-mark: visually mark the handwriting as captured
+      // Auto-mark: apply dashed border + Todoist link when config is ON
       const noteContext = noteContextRef.current;
-      if (noteContext) {
+      if (noteContext && markAsTextLink) {
         const {filePath, pageNum, bounds} = noteContext;
         try {
           setStatusText('Marking handwriting...');
           await PluginNoteAPI.saveCurrentNote();
-          if (markAsTextLink) {
-            // Config ON: dashed border + Todoist link
-            await applyStrokeLink(bounds, filePath, pageNum);
-          } else {
-            // Config OFF: T badge only (no link icon)
-            await applyTitleMark(bounds);
-          }
+          await applyStrokeLink(bounds, filePath, pageNum);
           setMarkDone('handwriting');
-          log('QuickAdd', `Auto-mark applied (link=${markAsTextLink})`);
+          log('QuickAdd', 'Auto-mark applied');
         } catch (err: any) {
           log('QuickAdd', `Auto-mark failed (non-fatal): ${err.message}`);
         }
@@ -350,20 +344,6 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       });
     } else {
       log('QuickAdd', `lassoElements failed: ${JSON.stringify(lassoResult)}`);
-    }
-  };
-
-  const applyTitleMark = async (rect: {left: number; top: number; right: number; bottom: number}) => {
-    const lr = lassoRect(rect);
-    log('QuickAdd', `applyTitleMark lassoElements: ${JSON.stringify(lr)}`);
-    const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
-    log('QuickAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
-
-    if (lassoResult?.success) {
-      const titleResult = await PluginNoteAPI.setLassoTitle({style: 1});
-      log('QuickAdd', `setLassoTitle result: ${JSON.stringify(titleResult)}`);
-    } else {
-      log('QuickAdd', `lassoElements for title failed: ${JSON.stringify(lassoResult)}`);
     }
   };
 
@@ -424,10 +404,19 @@ export default function QuickAdd({nav}: {nav: Nav}) {
           const pageEls = getResult.result;
           const filtered = pageEls.filter((el: any) => {
             if (lassoNums.has(el.numInPage)) return false;
+            // Remove link elements (type 600) referencing our strokes
             if (el.type === 600 && el.link?.controlTrailNums) {
               const refs: number[] = el.link.controlTrailNums;
               if (refs.some((n: number) => lassoNums.has(n))) {
                 log('QuickAdd', `Removing link el numInPage=${el.numInPage}`);
+                return false;
+              }
+            }
+            // Remove title elements (type 100) referencing our strokes
+            if (el.type === 100 && el.title?.controlTrailNums) {
+              const refs: number[] = el.title.controlTrailNums;
+              if (refs.some((n: number) => lassoNums.has(n))) {
+                log('QuickAdd', `Removing title el numInPage=${el.numInPage}`);
                 return false;
               }
             }
@@ -447,20 +436,28 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         }
       }
 
-      // Re-lasso the inserted text and apply mark
+      // Re-lasso the inserted text so user can move/edit it
       const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
-      if (markAsTextLink) {
-        try {
-          await applyStrokeLink(insertedRect, filePath, pageNum);
-        } catch (e: any) {
-          log('QuickAdd', `applyStrokeLink on text failed: ${e.message}`);
+      try {
+        const lr = lassoRect(insertedRect);
+        log('QuickAdd', `Re-lasso text: ${JSON.stringify(lr)}`);
+        const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
+        log('QuickAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
+
+        // If link config is on, apply dashed border + Todoist link to the text
+        if (markAsTextLink && reLassoResult?.success) {
+          const task = createdTaskRef.current;
+          const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
+          await PluginNoteAPI.setLassoStrokeLink({
+            destPath: taskUrl,
+            destPage: 0,
+            style: 2,
+            linkType: 4,
+          });
+          log('QuickAdd', 'Applied link to converted text');
         }
-      } else {
-        try {
-          await applyTitleMark(insertedRect);
-        } catch (e: any) {
-          log('QuickAdd', `applyTitleMark on text failed: ${e.message}`);
-        }
+      } catch (e: any) {
+        log('QuickAdd', `Re-lasso failed: ${e.message}`);
       }
 
       setMarkDone('text');
