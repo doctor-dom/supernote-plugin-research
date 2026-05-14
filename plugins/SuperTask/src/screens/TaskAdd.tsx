@@ -38,7 +38,6 @@ type NoteContext = {
   pageNum: number;
   bounds: {left: number; top: number; right: number; bottom: number};
   pageSize?: {width: number; height: number};
-  strokeLinkApplied?: boolean;
   lassoElementIds?: LassoElementId[];
 };
 
@@ -103,11 +102,6 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
       setCreatedTask(task);
 
-      // Insert visual mark on note page (non-blocking)
-      if (task?.id && noteContext) {
-        insertTaskMark(task.id).catch(() => {});
-      }
-
       setSubmitting(false);
       if (postCreateAction === 'auto-back') {
         setStatus('Task added!');
@@ -120,71 +114,6 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       logError('TaskAdd', err);
       setStatus(`Error: ${err.message}`);
       setSubmitting(false);
-    }
-  };
-
-  const insertTaskMark = async (taskId: string) => {
-    if (!noteContext) return;
-    const {bounds, strokeLinkApplied} = noteContext;
-    log('TaskAdd', `Inserting task mark: bounds=${JSON.stringify(bounds)} taskId=${taskId} strokeLinkApplied=${strokeLinkApplied}`);
-
-    try {
-      await PluginNoteAPI.saveCurrentNote();
-
-      if (strokeLinkApplied) {
-        // Title header already applied -- add a "T" badge to the left as task indicator
-        const badgeW = 32;
-        const badgeH = Math.min(32, bounds.bottom - bounds.top + 4);
-        const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
-        const badgeTop = bounds.top;
-
-        log('TaskAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
-        const badgeResult = await PluginNoteAPI.insertText({
-          textContentFull: 'T',
-          textRect: {
-            left: badgeLeft,
-            top: badgeTop,
-            right: badgeLeft + badgeW,
-            bottom: badgeTop + badgeH,
-          },
-          fontSize: 18,
-          textBold: 1,
-          textAlign: 1,
-          textFrameStyle: 3,
-          textEditable: 0,
-          textItalics: 0,
-          textFrameWidthType: 0,
-        });
-        log('TaskAdd', `T badge result: ${JSON.stringify(badgeResult)}`);
-        return;
-      }
-
-      // Fallback (no lasso title): text banner below handwriting with border
-      const markLeft = Math.max(0, bounds.left - 4);
-      const markTop = bounds.bottom + 6;
-      const markWidth = Math.max(200, bounds.right - bounds.left + 16);
-      const markHeight = 40;
-
-      log('TaskAdd', `insertText fallback: left=${markLeft} top=${markTop} w=${markWidth} h=${markHeight}`);
-      const textResult = await PluginNoteAPI.insertText({
-        textContentFull: `Task: ${content.trim().slice(0, 40)}`,
-        textRect: {
-          left: markLeft,
-          top: markTop,
-          right: markLeft + markWidth,
-          bottom: markTop + markHeight,
-        },
-        fontSize: 20,
-        textBold: 1,
-        textAlign: 0,
-        textFrameStyle: 3,
-        textEditable: 1,
-        textItalics: 0,
-        textFrameWidthType: 0,
-      });
-      log('TaskAdd', `insertText fallback result: ${JSON.stringify(textResult)}`);
-    } catch (err: any) {
-      logError('TaskAdd', `Task mark insertion failed: ${err.message}`);
     }
   };
 

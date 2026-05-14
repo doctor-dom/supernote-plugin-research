@@ -13,7 +13,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginCommAPI, PluginNoteAPI, PluginFileAPI, PluginDocAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI, PluginFileAPI, PluginDocAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -278,28 +278,10 @@ export default function Capture({mode, nav}: Props) {
         addTrace(`Bounds calc failed: ${e.message}`);
       }
 
-      // Apply dashed border to lasso strokes while context is still active
-      // Uses setLassoStrokeLink (style 2 = dashed border) instead of setLassoTitle
-      // which pollutes the Table of Contents
-      let strokeLinkApplied = false;
-      try {
-        addTrace('Trying setLassoStrokeLink style=2 (dashed border)...');
-        const linkResult = await PluginNoteAPI.setLassoStrokeLink({
-          destPath: 'https://todoist.com',
-          destPage: 0,
-          style: 2,
-          linkType: 4,
-        });
-        addTrace(`setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
-        strokeLinkApplied = !!(linkResult?.success || linkResult?.result === 0);
-      } catch (e: any) {
-        addTrace(`setLassoStrokeLink failed: ${e.message}`);
-      }
-
       // Build source context from filePath/pageNum we already fetched
       const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
       const description = `From: ${fileName} p.${pageNum}`;
-      addTrace(`Done: "${content.slice(0, 40)}" -- ${description} strokeLinkApplied=${strokeLinkApplied}`);
+      addTrace(`Done: "${content.slice(0, 40)}" -- ${description}`);
 
       // Collect lasso element identifiers for later deletion (Mark as Text)
       const lassoElementIds = elements.result.map((el: any) => ({
@@ -309,7 +291,7 @@ export default function Capture({mode, nav}: Props) {
       }));
       addTrace(`Collected ${lassoElementIds.length} element IDs (sample: uuid=${lassoElementIds[0]?.uuid} numInPage=${lassoElementIds[0]?.numInPage})`);
 
-      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, strokeLinkApplied, lassoElementIds} : null;
+      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, lassoElementIds} : null;
       return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureLasso ERROR: ${err.message}`);
