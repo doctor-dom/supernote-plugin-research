@@ -183,11 +183,13 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       }
     }
 
-    // OCR
-    log('QuickAdd', `recognizeElements: ${elements.result.length} elements, size=${pageSize.width}x${pageSize.height}`);
+    // OCR -- only pass stroke elements (type 200). Non-stroke elements
+    // (text boxes, links, T badges) confuse the recognizer and cause null results.
+    const strokeElements = elements.result.filter((el: any) => el.type === 200);
+    log('QuickAdd', `recognizeElements: ${strokeElements.length} strokes of ${elements.result.length} total, size=${pageSize.width}x${pageSize.height}`);
     setStatusText('Recognizing handwriting...');
     const recognized = await withTimeout(
-      PluginCommAPI.recognizeElements(elements.result, pageSize),
+      PluginCommAPI.recognizeElements(strokeElements.length > 0 ? strokeElements : elements.result, pageSize),
       30000,
       'recognizeElements',
     );
@@ -318,10 +320,12 @@ export default function QuickAdd({nav}: {nav: Nav}) {
             });
           }
 
-          // Insert T badge on left border, aligned with top of handwriting
+          // Insert T badge on left border, aligned with top of handwriting.
+          // Gap must be wide enough that lassoElements(bounds) won't catch it
+          // during Convert to Text (native lasso has fuzzy selection).
           const badgeW = 26;
           const badgeH = 26;
-          const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
+          const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
           const badgeTop = bounds.top;
           log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
           await PluginNoteAPI.insertText({
@@ -382,11 +386,21 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       };
 
       // Step 1: Re-lasso the handwriting to get a fresh lasso context.
-      // The original lasso expired during auto-mark (insertText/saveCurrentNote kills it).
-      // Use tight bounds so we don't accidentally catch the T badge (which is to the left).
       log('QuickAdd', `Re-lasso handwriting: ${JSON.stringify(bounds)}`);
       const reLassoHw = await (PluginCommAPI as any).lassoElements(bounds);
       log('QuickAdd', `Re-lasso handwriting result: ${JSON.stringify(reLassoHw)}`);
+
+      // Diagnostic: check what the re-lasso actually captured
+      if (reLassoHw?.success) {
+        try {
+          const captured = await PluginCommAPI.getLassoElements();
+          const count = captured?.result?.length ?? 0;
+          const types = (captured?.result || []).map((e: any) => e.type);
+          log('QuickAdd', `Re-lasso captured ${count} elements, types=[${types.join(',')}]`);
+        } catch (e: any) {
+          log('QuickAdd', `getLassoElements diagnostic failed: ${e.message}`);
+        }
+      }
 
       // Step 2: Delete the lasso'd handwriting. Native handles cross-ref cleanup.
       if (reLassoHw?.success) {
@@ -397,7 +411,17 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         log('QuickAdd', 'Re-lasso failed, skipping delete');
       }
 
-      // Step 3: Insert typed text where handwriting was
+      // Step 3: Save and reload to force display refresh after deletion
+      await PluginNoteAPI.saveCurrentNote();
+      log('QuickAdd', 'saveCurrentNote after delete');
+      try {
+        const reloadResult = await PluginCommAPI.reloadFile();
+        log('QuickAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
+      } catch (e: any) {
+        log('QuickAdd', `reloadFile failed: ${e.message}`);
+      }
+
+      // Step 4: Insert typed text where handwriting was
       log('QuickAdd', `insertText: l=${textRect.left} t=${textRect.top} fontSize=${fontSize}`);
       await PluginNoteAPI.insertText({
         textContentFull: content.trim(),
@@ -411,11 +435,28 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         textFrameWidthType: 1,
       });
 
-      // Step 4: Save
+      // Step 5: Re-insert T badge (the delete lasso likely caught the original)
+      const badgeW = 26, badgeH = 26;
+      const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
+      const badgeTop = bounds.top;
+      log('QuickAdd', `Re-inserting T badge: left=${badgeLeft} top=${badgeTop}`);
+      await PluginNoteAPI.insertText({
+        textContentFull: 'T',
+        textRect: {left: badgeLeft, top: badgeTop, right: badgeLeft + badgeW, bottom: badgeTop + badgeH},
+        fontSize: 18,
+        textBold: 1,
+        textAlign: 1,
+        textFrameStyle: 3,
+        textEditable: 1,
+        textItalics: 0,
+        textFrameWidthType: 0,
+      });
+
+      // Step 6: Save
       await PluginNoteAPI.saveCurrentNote();
       log('QuickAdd', 'saveCurrentNote after convert');
 
-      // Step 5: Re-lasso the inserted text so user can reposition it
+      // Step 6: Re-lasso the inserted text so user can reposition it
       try {
         const lr = lassoRect(textRect);
         log('QuickAdd', `Re-lasso text: ${JSON.stringify(lr)}`);

@@ -16,7 +16,7 @@ try {
   _debugServerUrl = (cfg.default || cfg).debugServerUrl || '';
 } catch {}
 
-const MAX_ENTRIES = 50;
+const MAX_ENTRIES = 500;
 const entries = [];
 let _listener = null;
 let _debugMode = false;

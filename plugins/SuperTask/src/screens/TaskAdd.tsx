@@ -125,7 +125,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
           // Always insert T badge at top-left of handwriting bounds
           const badgeW = 26;
           const badgeH = 26;
-          const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
+          const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
           const badgeTop = bounds.top;
           log('TaskAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
           await PluginNoteAPI.insertText({
@@ -221,11 +221,21 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       };
 
       // Step 1: Re-lasso the handwriting to get a fresh lasso context.
-      // The original lasso expired during auto-mark (insertText/saveCurrentNote kills it).
-      // Use tight bounds so we don't accidentally catch the T badge (which is to the left).
       log('TaskAdd', `Re-lasso handwriting: ${JSON.stringify(bounds)}`);
       const reLassoHw = await (PluginCommAPI as any).lassoElements(bounds);
       log('TaskAdd', `Re-lasso handwriting result: ${JSON.stringify(reLassoHw)}`);
+
+      // Diagnostic: check what the re-lasso actually captured
+      if (reLassoHw?.success) {
+        try {
+          const captured = await PluginCommAPI.getLassoElements();
+          const count = captured?.result?.length ?? 0;
+          const types = (captured?.result || []).map((e: any) => e.type);
+          log('TaskAdd', `Re-lasso captured ${count} elements, types=[${types.join(',')}]`);
+        } catch (e: any) {
+          log('TaskAdd', `getLassoElements diagnostic failed: ${e.message}`);
+        }
+      }
 
       // Step 2: Delete the lasso'd handwriting. Native handles cross-ref cleanup.
       if (reLassoHw?.success) {
@@ -236,7 +246,17 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         log('TaskAdd', 'Re-lasso failed, skipping delete');
       }
 
-      // Step 3: Insert typed text where handwriting was
+      // Step 3: Save and reload to force display refresh after deletion
+      await PluginNoteAPI.saveCurrentNote();
+      log('TaskAdd', 'saveCurrentNote after delete');
+      try {
+        const reloadResult = await PluginCommAPI.reloadFile();
+        log('TaskAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
+      } catch (e: any) {
+        log('TaskAdd', `reloadFile failed: ${e.message}`);
+      }
+
+      // Step 4: Insert typed text where handwriting was
       log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} fontSize=${fontSize}`);
       await PluginNoteAPI.insertText({
         textContentFull: content.trim(),
@@ -250,7 +270,24 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         textFrameWidthType: 1,
       });
 
-      // Step 4: Save
+      // Step 5: Re-insert T badge
+      const badgeW = 26, badgeH = 26;
+      const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
+      const badgeTop = bounds.top;
+      log('TaskAdd', `Re-inserting T badge: left=${badgeLeft} top=${badgeTop}`);
+      await PluginNoteAPI.insertText({
+        textContentFull: 'T',
+        textRect: {left: badgeLeft, top: badgeTop, right: badgeLeft + badgeW, bottom: badgeTop + badgeH},
+        fontSize: 18,
+        textBold: 1,
+        textAlign: 1,
+        textFrameStyle: 3,
+        textEditable: 1,
+        textItalics: 0,
+        textFrameWidthType: 0,
+      });
+
+      // Step 6: Save
       await PluginNoteAPI.saveCurrentNote();
       log('TaskAdd', 'saveCurrentNote after convert');
 
