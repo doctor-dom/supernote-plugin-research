@@ -65,8 +65,8 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const [postCreateAction, setPostCreateAction] = useState('prompt');
   const [debugMode, setDebugMode] = useState(false);
-  const [markingAsText, setMarkingAsText] = useState(false);
-  const [markAsTextDone, setMarkAsTextDone] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const [markDone, setMarkDone] = useState<'none' | 'handwriting' | 'text'>('none');
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
   const [markAsTextLink, setMarkAsTextLink] = useState(false);
 
@@ -146,11 +146,54 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     }
   };
 
+  const applyStrokeLink = async (rect: {left: number; top: number; right: number; bottom: number}, filePath: string, pageNum: number) => {
+    const lassoRect = {
+      left: rect.left - 4,
+      top: rect.top - 4,
+      right: rect.right + 4,
+      bottom: rect.bottom + 4,
+    };
+    log('TaskAdd', `lassoElements: ${JSON.stringify(lassoRect)}`);
+    const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
+    log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
+
+    if (lassoResult?.success) {
+      const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
+      const destPath = markAsTextLink ? taskUrl : filePath || taskUrl;
+      const linkType = markAsTextLink ? 4 : 0;
+      log('TaskAdd', `setLassoStrokeLink: linkEnabled=${markAsTextLink} destPath=${destPath.slice(0, 40)}`);
+      const linkResult = await PluginNoteAPI.setLassoStrokeLink({
+        destPath,
+        destPage: markAsTextLink ? 0 : pageNum,
+        style: 2,
+        linkType,
+      });
+      log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
+    }
+  };
+
+  const handleMark = async () => {
+    if (!noteContext) return;
+    const {filePath, pageNum, bounds} = noteContext;
+    log('TaskAdd', 'MARK (handwriting) pressed');
+    setMarking(true);
+
+    try {
+      await PluginNoteAPI.saveCurrentNote();
+      await applyStrokeLink(bounds, filePath, pageNum);
+      setMarkDone('handwriting');
+    } catch (err: any) {
+      logError('TaskAdd', `Mark handwriting failed: ${err.message}`);
+    } finally {
+      setMarking(false);
+    }
+  };
+
   const handleMarkAsText = async () => {
     if (!noteContext) return;
     const {filePath, pageNum, bounds, lassoElementIds} = noteContext;
     log('TaskAdd', `MARK AS TEXT pressed lassoIds=${lassoElementIds?.length ?? 0}`);
-    setMarkingAsText(true);
+    setMarking(true);
 
     try {
       await PluginNoteAPI.saveCurrentNote();
@@ -226,43 +269,19 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         }
       }
 
-      // Re-lasso the inserted text so the user can move/edit it immediately.
+      // Re-lasso the inserted text and apply dashed border
+      const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
       try {
-        const lassoRect = {
-          left: bounds.left - 4,
-          top: bounds.top - 4,
-          right: bounds.left + textWidth + 4,
-          bottom: bounds.top + textHeight + 4,
-        };
-        log('TaskAdd', `Trying lassoElements: ${JSON.stringify(lassoRect)}`);
-        const lassoResult = await (PluginCommAPI as any).lassoElements(lassoRect);
-        log('TaskAdd', `lassoElements result: ${JSON.stringify(lassoResult)}`);
-
-        // Always apply dashed border as visual task marker.
-        // If linking is enabled, link points to Todoist task.
-        // If disabled, link points to current note page (no-op).
-        if (lassoResult?.success) {
-          const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
-          const destPath = markAsTextLink ? taskUrl : filePath || taskUrl;
-          const linkType = markAsTextLink ? 4 : 0;
-          log('TaskAdd', `Applying setLassoStrokeLink: linkEnabled=${markAsTextLink} destPath=${destPath.slice(0, 40)}`);
-          const linkResult = await PluginNoteAPI.setLassoStrokeLink({
-            destPath,
-            destPage: markAsTextLink ? 0 : pageNum,
-            style: 2,
-            linkType,
-          });
-          log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
-        }
+        await applyStrokeLink(insertedRect, filePath, pageNum);
       } catch (e: any) {
-        log('TaskAdd', `lassoElements/link failed: ${e.message}`);
+        log('TaskAdd', `applyStrokeLink on text failed: ${e.message}`);
       }
 
-      setMarkAsTextDone(true);
+      setMarkDone('text');
     } catch (err: any) {
       logError('TaskAdd', `Mark as text failed: ${err.message}`);
     } finally {
-      setMarkingAsText(false);
+      setMarking(false);
     }
   };
 
@@ -361,15 +380,30 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       <View style={styles.overlayCenter}>
         <View style={styles.overlayModal}>
           <Text style={styles.overlayText}>Task added!</Text>
-          {captureMode === 'lasso' && noteContext && (
-            <Pressable
-              style={[styles.markAsTextButton, markAsTextDone && styles.markAsTextButtonDone]}
-              onPress={handleMarkAsText}
-              disabled={markingAsText || markAsTextDone}>
-              <Text style={[styles.markAsTextButtonText, markAsTextDone && styles.markAsTextButtonTextDone]}>
-                {markAsTextDone ? 'Marked as text' : markingAsText ? 'Replacing...' : 'Mark as Text'}
-              </Text>
-            </Pressable>
+          {captureMode === 'lasso' && noteContext && markDone !== 'none' && (
+            <Text style={styles.markDoneLabel}>
+              {markDone === 'handwriting' ? 'Marked' : 'Marked as text'}
+            </Text>
+          )}
+          {captureMode === 'lasso' && noteContext && markDone === 'none' && (
+            <View style={styles.markRow}>
+              <Pressable
+                style={[styles.markButton, {flex: 1}]}
+                onPress={handleMark}
+                disabled={marking}>
+                <Text style={styles.markButtonText}>
+                  {marking ? 'Marking...' : 'Mark'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.markButton, styles.markButtonDashed, {flex: 1}]}
+                onPress={handleMarkAsText}
+                disabled={marking}>
+                <Text style={styles.markButtonText}>
+                  {marking ? 'Marking...' : 'Mark as Text'}
+                </Text>
+              </Pressable>
+            </View>
           )}
           <View style={styles.overlayButtons}>
             <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
@@ -500,26 +534,31 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#000000',
   },
-  markAsTextButton: {
+  markRow: {
+    flexDirection: 'row',
+    gap: 12,
     marginTop: 16,
+    alignSelf: 'stretch',
+  },
+  markButton: {
     paddingVertical: 12,
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     alignItems: 'center',
-    alignSelf: 'stretch',
+  },
+  markButtonDashed: {
     borderStyle: 'dashed',
   },
-  markAsTextButtonDone: {
-    borderStyle: 'solid',
-    backgroundColor: '#f0f0f0',
-  },
-  markAsTextButtonText: {
+  markButtonText: {
     fontSize: 15,
     fontWeight: '700',
     color: '#000000',
   },
-  markAsTextButtonTextDone: {
+  markDoneLabel: {
+    marginTop: 12,
+    fontSize: 15,
+    fontWeight: '600',
     color: '#666666',
   },
   overlayButtons: {
