@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 10 in progress.** Quick-add overlay working on-device. Lasso workflow redesign underway -- see approved workflow at `docs/workflow-lasso-capture.svg`. Implementation ~70% done, needs final refactor to match spec.
+**Session 12 in progress.** Testing `deleteLassoElements` approach for Convert to Text. Build `1fa8b3f`.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -17,7 +17,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 5b: Task marking | Done | setLassoStrokeLink (dashed border + link icon) confirmed on-device |
 | 5c: This Page | Done | Confirmed working on-device (shows tasks for current note/page) |
 | 5d: Mark as Text | Done | Post-action replaces handwriting with editable typed text + dashed border. Configurable font size and Todoist link. |
-| 5e: Quick-add overlay | **In progress** | Overlay working, workflow redesign needs final implementation. See "Session 10 remaining work" below. |
+| 5e: Quick-add overlay | **In progress** | Overlay working. Convert to Text being reworked (was replaceElements, now deleteLassoElements). |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
 | 9: Task dashboard | Unblocked | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. Ready to build. |
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
@@ -26,82 +26,85 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 8: Polish | Backlog | Loading states, error handling, empty states |
 | Offline mode | Future | Queue tasks locally, sync to Todoist when wifi available |
 
-## Session 10 remaining work
+## Session 12 -- current state
 
-**Reference: `docs/workflow-lasso-capture.svg`** -- approved workflow diagram.
+Latest build: `1fa8b3f` (on `supertask-ui-redesign` branch)
 
-### What's done this session
+### What changed from Session 11
 
-1. **QuickAdd overlay** (`src/screens/QuickAdd.tsx`) -- new screen combining OCR capture + compact add form in a centered transparent overlay. Lasso button (200) routes here. Toolbar button (100) still opens full-screen TaskHome. Confirmed working on-device.
-2. **Pre-confirmation marking removed** from ALL screens (QuickAdd, Capture, TaskAdd). No dashed border, T badge, or URL link until user explicitly confirms. Old `insertTaskMark()` function deleted.
-3. **Stale screen state bug fixed** -- `ScreenEntry` now has unique `id` counter, all screen components use `key={current.id}` to force fresh React instances on repeated navigation.
-4. **Description field** added back to QuickAdd form.
-5. **View Tasks** button in success phase + "Tasks" link in header during form phase.
-6. **Recognition logging** added -- `recognizeElements` raw result is now logged on both success and failure to diagnose OCR errors.
+**Abandoned `replaceElements` for Convert to Text.** The file-level `getElements` -> filter -> `replaceElements` -> `reloadFile` pipeline had fatal problems:
+- Error 502/602: native cross-reference validation (`controlTrailNums` in link/title elements) fails unpredictably. Removing all type 600/100 elements didn't reliably fix it -- sometimes `getElements` returns link elements with type 600 that we can filter, sometimes it doesn't.
+- Position shifts: `replaceElements` causes other strokes on the page to visually move, ruining adjacent handwriting.
 
-### What still needs to be done
+**New approach: `lassoElements(bounds)` + `deleteLassoElements()`.**
+Since the lasso expires during auto-mark (insertText/saveCurrentNote kills it), we programmatically re-create the lasso via `lassoElements(handwritingBounds)` and then `deleteLassoElements()`. This lets the native layer handle element deletion and cross-reference cleanup.
 
-The current code has TWO post-confirmation buttons ("Mark" and "Mark as Text"). The approved workflow simplifies this to:
+### Convert to Text flow (current build `1fa8b3f`)
 
-**1. Auto-mark on submit** -- After `createTask()` succeeds in `handleSubmit`, automatically run:
 ```
-saveCurrentNote()
-lassoElements(bounds)       // re-lasso the original handwriting
-setLassoStrokeLink(...)     // dashed border, link dest from config
-```
-This marks the handwriting with a dashed border immediately. The link destination respects the "Link to Todoist Task" config toggle (ON = Todoist URL, OFF = self-ref note page).
-
-**2. Rename "Mark as Text" to "Convert to Text"** -- This is now optional. The handwriting is already marked. "Convert to Text" replaces the handwritten strokes with typed text while keeping the dashed border. The button label should be "Convert to Text", not "Mark as Text".
-
-**3. Remove the standalone "Mark" button** -- Auto-mark replaces it. Success screen should show:
-- "Convert to Text" (optional, dashed border)
-- "View Tasks" (opens TaskHome)
-- "Done" (closePluginView)
-
-**4. Apply same changes to TaskAdd.tsx** -- The full-screen TaskAdd (reached via Capture.tsx for doc mode, or via TaskHome > Add) should have the same post-confirmation behavior when `captureMode === 'lasso'` and `noteContext` is present.
-
-**5. Lasso stays active after both operations** -- After auto-mark AND after Convert to Text, the lasso selection should remain active on the result (handwriting or typed text) so the user can reposition immediately.
-
-### Key files to modify
-
-- `src/screens/QuickAdd.tsx` -- main overlay screen. Has `handleMark`, `handleMarkAsText`, `applyStrokeLink` helper. Refactor: move auto-mark into `handleSubmit`, rename handleMarkAsText to handleConvertToText, remove handleMark, update success UI.
-- `src/screens/TaskAdd.tsx` -- full-screen add. Same refactor needed for consistency.
-- `App.tsx` -- no changes needed (routing is correct).
-- `src/screens/Capture.tsx` -- no changes needed (pre-confirmation marking already removed).
-
-### Key SDK call sequence for auto-mark
-
-```javascript
-// After createTask() succeeds:
-await PluginNoteAPI.saveCurrentNote();
-const lassoResult = await PluginCommAPI.lassoElements({
-  left: bounds.left - 4,
-  top: bounds.top - 4,
-  right: bounds.right + 4,
-  bottom: bounds.bottom + 4,
-});
-if (lassoResult?.success) {
-  const destPath = markAsTextLink ? taskUrl : filePath;
-  const linkType = markAsTextLink ? 4 : 0;
-  await PluginNoteAPI.setLassoStrokeLink({
-    destPath,
-    destPage: markAsTextLink ? 0 : pageNum,
-    style: 2,
-    linkType,
-  });
-}
+1. lassoElements(handwritingBounds)   -- re-select the handwriting
+2. getLassoElements()                  -- DIAGNOSTIC: log what was captured
+3. deleteLassoElements()               -- delete (native handles cross-refs)
+4. saveCurrentNote()                   -- persist deletion
+5. reloadFile()                        -- force display refresh
+6. insertText(typed text)              -- editable text at handwriting position
+7. insertText(T badge)                 -- re-insert (delete may have caught it)
+8. saveCurrentNote()                   -- persist inserts
+9. lassoElements(textRect)             -- select text for repositioning
+10. setLassoStrokeLink() (config ON)   -- dashed border + Todoist link
 ```
 
-### Known issues to investigate
+### Auto-mark flow (unchanged, runs on task submit)
 
-- **OCR failures in QuickAdd** -- User reports consistent "can't read handwriting" errors that don't occur with native recognition. Diagnostic logging added (raw recognizeElements result). Check uploaded logs after next test for the actual error payload. May be related to element count or page context.
-- **Dashed border without link icon** -- `setLassoStrokeLink` always creates a link element (type 600) which shows a link icon. No SDK method produces a dashed border without a link. Current workaround: use `setLassoTitle({style: 1})` for a T badge instead. Potential future fix: create a link element via `createElement(600)` + `insertElements` with `style: 2` (dashed border), `controlTrailNums` set to stroke numInPage values, but empty `destPath` -- bypassing `setLassoStrokeLink` validation. Alternatively, use `setLassoStrokeLink` with self-ref then file-level surgery (`getElements`/`replaceElements`) to strip `destPath` from the link element while keeping `style: 2`. Either approach needs on-device testing to confirm the border renders without the icon.
+```
+1. setLassoStrokeLink() (config ON)    -- dashed border on original lasso
+2. insertText(T badge)                 -- 26x26 bordered "T" to the left
+3. saveCurrentNote()                   -- persist
+```
 
-## To build after Session 10
+### What's been tested (Session 12, build `1fa8b3f`)
+
+| Test | Config | Action | Result | Notes |
+|------|--------|--------|--------|-------|
+| Auto-mark, config OFF | OFF | Submit only | T badge appears | T badge position slightly off (too close to handwriting, appears above) |
+| Auto-mark, config ON | ON | Submit only | T badge + dashed border + link | Looks good |
+| Convert, config ON | ON | Submit + Convert | Handwriting removed, typed text + dashed border | Works! T badge lost (caught by re-lasso) |
+| Convert, config OFF | OFF | Submit + Convert | Handwriting NOT removed, typed text overlaid | `deleteLassoElements` returns success but strokes remain visible |
+
+### Open issues being investigated
+
+1. **Config OFF Convert to Text: strokes not removed.** `deleteLassoElements` returns `{result: true, success: true}` but handwriting remains visible. Two hypotheses:
+   - Display not refreshing: strokes deleted from data but e-ink not updated. Build `1fa8b3f` adds `reloadFile()` after delete to test this.
+   - Re-lasso capturing wrong elements: `lassoElements(bounds)` might select non-stroke elements (T badge) instead of the handwriting. Build `1fa8b3f` adds `getLassoElements()` diagnostic to log exactly what was captured.
+
+2. **Config ON Convert to Text: T badge lost.** The re-lasso catches the T badge (only 4px gap). Fixed in `1fa8b3f`: gap increased to 16px, and T badge is re-inserted after delete.
+
+3. **OCR null results on dirty pages.** `recognizeElements` returns `{success: true, result: null}` on pages with mixed element types (text boxes, links from previous tests). Fixed in `1fa8b3f`: filter to stroke-only elements (type 200) before passing to recognizer.
+
+### Parameter corrections made
+
+- **`textEditable: 0` = editable, `1` = not editable** (counterintuitive). Convert to Text was using `1` (not editable), now uses `0`.
+- **`textFrameWidthType: 1` = auto-width** (system sizes to fit). Was using `0` (fixed width with manual char-count estimate).
+- **T badge gap**: `bounds.left - badgeW - 16` (was `-4`, too close, caught by re-lasso).
+
+### Key SDK discovery: lasso lifecycle
+
+The original user lasso **expires** after `insertText()` + `saveCurrentNote()` during auto-mark. `deleteLassoElements()` without re-lasso returns error 904. But `lassoElements(rect)` can programmatically re-create a lasso context that `deleteLassoElements()` accepts.
+
+Config ON vs OFF difference during Convert to Text:
+- Config ON: `setLassoStrokeLink` was called during auto-mark, converting strokes to linked strokes. When re-lasso'd, `deleteLassoElements` removes both strokes and their link elements.
+- Config OFF: strokes are plain. `deleteLassoElements` returns success but strokes remain (needs investigation -- may be display refresh or lasso capturing wrong elements).
+
+### Dev tooling
+
+- **Log buffer increased to 500** (was 50). Previous buffer was too small for multi-test sessions.
+- **Inkling skill installed** at `.claude/skills/inkling/`. Provides Supernote plugin API reference, patterns, and type definitions. Complements CLAUDE.md with PluginDocAPI, native floating windows, sticker APIs, coordinate conversion utilities.
+
+## Backlog
 
 1. **Dashboard v1** -- all APIs confirmed. Build single-page dashboard with bidirectional links using createNote + insertTextLink + insertNotePage.
 2. **Config redesign** -- settings screen is getting bloated. Needs reorganization as features accumulate.
-3. **Test surgical task processing with dense handwriting** -- verify Mark/Convert works correctly when page has lots of handwriting. Key concern: numInPage matching and link cross-reference cleanup.
+3. **Test Convert to Text with dense handwriting** -- verify on pages with lots of handwriting.
 
 ## Architecture
 
