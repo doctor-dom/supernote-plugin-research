@@ -54,17 +54,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-// EMR digitizer maximum values
-const EMR_NORMAL = {portrait: {maxX: 15819, maxY: 11864}, landscape: {maxX: 11864, maxY: 15819}};
-const EMR_A5X2   = {portrait: {maxX: 21632, maxY: 16224}, landscape: {maxX: 16224, maxY: 21632}};
-
-function getEmrMaximums(pageSize: {width: number; height: number}, emrMaxX: number, emrMaxY: number) {
-  const isPortrait = pageSize.width <= pageSize.height;
-  const usesA5X2 = emrMaxX > 15819 || emrMaxY > 11864;
-  const range = usesA5X2 ? EMR_A5X2 : EMR_NORMAL;
-  return isPortrait ? range.portrait : range.landscape;
-}
-
 type Phase = 'recognizing' | 'ready' | 'submitting' | 'success' | 'error';
 
 export default function QuickAdd({nav}: {nav: Nav}) {
@@ -205,67 +194,18 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     const capturedContent = recognized.result.trim();
     log('QuickAdd', `Recognized: "${capturedContent.slice(0, 60)}"`);
 
-    // Compute bounding box from stroke points
+    // Get exact lasso bounds in pixel coordinates from the active selection
     let bounds = null;
     try {
-      let emrMaxX = 0, emrMaxY = 0;
-      for (const el of elements.result) {
-        if (el.maxX !== undefined && el.maxX > emrMaxX) emrMaxX = el.maxX;
-        if (el.maxY !== undefined && el.maxY > emrMaxY) emrMaxY = el.maxY;
-      }
-
-      const {maxX: realMaxX, maxY: realMaxY} = getEmrMaximums(pageSize, emrMaxX, emrMaxY);
-      const scaleX = realMaxX / (pageSize.height - 1);
-      const scaleY = realMaxY / (pageSize.width - 1);
-
-      let sMinX = Infinity, sMinY = Infinity, sMaxX = 0, sMaxY = 0;
-      let pointsRead = 0;
-      for (const el of elements.result) {
-        if (!el.stroke?.points?._size) continue;
-        try {
-          const pts = el.stroke.points;
-          const size = pts._size;
-          // Sample evenly across stroke for accurate bounds
-          const indices: Set<number> = new Set([0, size - 1]);
-          if (size > 2) {
-            const step = Math.max(1, Math.floor(size / 20));
-            for (let i = step; i < size - 1; i += step) {
-              indices.add(i);
-            }
-          }
-          for (const idx of indices) {
-            try {
-              const pt = await pts.get(idx);
-              if (pt?.x !== undefined && pt?.y !== undefined) {
-                if (pt.x < sMinX) sMinX = pt.x;
-                if (pt.x > sMaxX) sMaxX = pt.x;
-                if (pt.y < sMinY) sMinY = pt.y;
-                if (pt.y > sMaxY) sMaxY = pt.y;
-                pointsRead++;
-              }
-            } catch {}
-          }
-        } catch (e: any) {
-          log('QuickAdd', `Stroke point read error: ${e.message}`);
-        }
-      }
-
-      if (pointsRead > 0 && sMinX !== Infinity) {
-        log('QuickAdd', `EMR raw: minX=${sMinX} maxX=${sMaxX} minY=${sMinY} maxY=${sMaxY} scale=${scaleX.toFixed(2)},${scaleY.toFixed(2)} realMax=${realMaxX},${realMaxY}`);
-        const pxLeft = Math.round(pageSize.width - 1 - sMaxY / scaleY);
-        const pxTop = Math.round(sMinX / scaleX);
-        const pxRight = Math.round(pageSize.width - 1 - sMinY / scaleY);
-        const pxBottom = Math.round(sMaxX / scaleX);
-        bounds = {
-          left: Math.min(pxLeft, pxRight),
-          top: Math.min(pxTop, pxBottom),
-          right: Math.max(pxLeft, pxRight),
-          bottom: Math.max(pxTop, pxBottom),
-        };
-        log('QuickAdd', `Pixel bounds: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom} (${pointsRead} points sampled)`);
+      const lassoRect = await withTimeout(PluginCommAPI.getLassoRect(), 3000, 'getLassoRect');
+      if (lassoRect?.success && lassoRect.result) {
+        bounds = lassoRect.result;
+        log('QuickAdd', `getLassoRect: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom}`);
+      } else {
+        log('QuickAdd', `getLassoRect failed: ${JSON.stringify(lassoRect)}`);
       }
     } catch (e: any) {
-      log('QuickAdd', `Bounds calc failed: ${e.message}`);
+      log('QuickAdd', `getLassoRect error: ${e.message}`);
     }
 
     // Collect element IDs for Mark as Text (no marking until user confirms)
@@ -342,10 +282,13 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       // Step 3: Insert typed text where handwriting was
       const fontSize = markAsTextFontSize;
       const textHeight = Math.round(fontSize * 1.4);
+      const textContent = content.trim();
+      const estCharWidth = Math.round(fontSize * 0.55);
+      const textWidth = Math.max(80, textContent.length * estCharWidth + 16);
       const textRect = {
         left: bounds.left,
         top: bounds.top,
-        right: bounds.left + 200,
+        right: bounds.left + textWidth,
         bottom: bounds.top + textHeight,
       };
       log('QuickAdd', `insertText: l=${textRect.left} t=${textRect.top} fontSize=${fontSize}`);
@@ -361,10 +304,10 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         textFrameWidthType: 1,
       });
 
-      // Step 4: Insert T badge
+      // Step 4: Insert T badge relative to the text we just inserted
       const badgeW = 26, badgeH = 26;
-      const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
-      const badgeTop = bounds.top;
+      const badgeLeft = Math.max(0, textRect.left - badgeW - 8);
+      const badgeTop = textRect.top;
       log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop}`);
       await PluginNoteAPI.insertText({
         textContentFull: 'T',
@@ -433,9 +376,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
           });
         }
 
-        // Insert T badge
+        // Insert T badge just left of the lasso rect
         const badgeW = 26, badgeH = 26;
-        const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
+        const badgeLeft = Math.max(0, bounds.left - badgeW - 8);
         const badgeTop = bounds.top;
         log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop}`);
         await PluginNoteAPI.insertText({
