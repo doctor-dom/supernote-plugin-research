@@ -298,7 +298,8 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         }
       }
 
-      // Re-lasso the inserted text and apply dashed border mark
+      // Always re-lasso the inserted text so user can reposition it.
+      // Config ON: also apply dashed border + Todoist link.
       const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
       try {
         const lr = makeLassoRect(insertedRect);
@@ -306,30 +307,15 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
         log('TaskAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
 
-        if (reLassoResult?.success) {
-          if (markAsTextLink) {
-            const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
-            await PluginNoteAPI.setLassoStrokeLink({
-              destPath: taskUrl,
-              destPage: 0,
-              style: 2,
-              linkType: 4,
-            });
-            log('TaskAdd', 'Applied Todoist link to converted text');
-          } else {
-            await PluginNoteAPI.setLassoStrokeLink({
-              destPath: filePath,
-              destPage: pageNum,
-              style: 2,
-              linkType: 0,
-            });
-            log('TaskAdd', 'Applied self-ref mark to converted text');
-          }
-
-          // Dismiss re-lasso to avoid leaving the lasso action bar open
-          try {
-            await (PluginCommAPI as any).setLassoBoxState(2);
-          } catch {}
+        if (markAsTextLink && reLassoResult?.success) {
+          const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
+          await PluginNoteAPI.setLassoStrokeLink({
+            destPath: taskUrl,
+            destPage: 0,
+            style: 2,
+            linkType: 4,
+          });
+          log('TaskAdd', 'Applied Todoist link to converted text');
         }
       } catch (e: any) {
         log('TaskAdd', `Re-lasso failed: ${e.message}`);
