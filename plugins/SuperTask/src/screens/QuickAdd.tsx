@@ -40,7 +40,6 @@ type NoteContext = {
   pageNum: number;
   bounds: {left: number; top: number; right: number; bottom: number};
   pageSize: {width: number; height: number};
-  strokeLinkApplied: boolean;
   lassoElementIds: LassoElementId[];
 };
 
@@ -160,12 +159,14 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     try {
       const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
       filePath = fp?.result || '';
+      log('QuickAdd', `filePath: ${filePath}`);
     } catch (e: any) {
       log('QuickAdd', `getCurrentFilePath failed: ${e.message}`);
     }
     try {
       const pn = await withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum');
       pageNum = pn?.result ?? 0;
+      log('QuickAdd', `pageNum: ${pageNum}`);
     } catch (e: any) {
       log('QuickAdd', `getCurrentPageNum failed: ${e.message}`);
     }
@@ -190,6 +191,8 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       30000,
       'recognizeElements',
     );
+
+    log('QuickAdd', `recognizeElements result: success=${recognized?.success} hasResult=${!!recognized?.result} raw=${JSON.stringify(recognized).slice(0, 200)}`);
 
     if (!recognized?.success || !recognized?.result) {
       setErrorText('Could not recognize handwriting. Try selecting clearer text.');
@@ -252,22 +255,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       log('QuickAdd', `Bounds calc failed: ${e.message}`);
     }
 
-    // Apply dashed border while lasso context is still active
-    let strokeLinkApplied = false;
-    try {
-      const linkResult = await PluginNoteAPI.setLassoStrokeLink({
-        destPath: 'https://todoist.com',
-        destPage: 0,
-        style: 2,
-        linkType: 4,
-      });
-      strokeLinkApplied = !!(linkResult?.success || linkResult?.result === 0);
-      log('QuickAdd', `setLassoStrokeLink: applied=${strokeLinkApplied}`);
-    } catch (e: any) {
-      log('QuickAdd', `setLassoStrokeLink failed: ${e.message}`);
-    }
-
-    // Collect element IDs for Mark as Text
+    // Collect element IDs for Mark as Text (no marking until user confirms)
     const lassoElementIds = elements.result.map((el: any) => ({
       uuid: el.uuid,
       numInPage: el.numInPage,
@@ -277,7 +265,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
     const noteDescription = `From: ${fileName} p.${pageNum}`;
 
-    const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, strokeLinkApplied, lassoElementIds} : null;
+    const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, lassoElementIds} : null;
     return {content: capturedContent, description: noteDescription, noteContext};
   };
 
@@ -298,44 +286,11 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       log('QuickAdd', `Created task id=${task?.id}`);
       createdTaskRef.current = task;
 
-      // Insert T badge on note (non-blocking)
-      if (task?.id && noteContextRef.current) {
-        insertTaskMark(task.id).catch(() => {});
-      }
-
       setPhase('success');
     } catch (err: any) {
       logError('QuickAdd', err);
       setErrorText(`Error: ${err.message}`);
       setPhase('error');
-    }
-  };
-
-  const insertTaskMark = async (taskId: string) => {
-    const noteContext = noteContextRef.current;
-    if (!noteContext) return;
-    const {bounds, strokeLinkApplied} = noteContext;
-
-    try {
-      await PluginNoteAPI.saveCurrentNote();
-      if (strokeLinkApplied) {
-        const badgeW = 32;
-        const badgeH = Math.min(32, bounds.bottom - bounds.top + 4);
-        const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
-        await PluginNoteAPI.insertText({
-          textContentFull: 'T',
-          textRect: {left: badgeLeft, top: bounds.top, right: badgeLeft + badgeW, bottom: bounds.top + badgeH},
-          fontSize: 18,
-          textBold: 1,
-          textAlign: 1,
-          textFrameStyle: 3,
-          textEditable: 0,
-          textItalics: 0,
-          textFrameWidthType: 0,
-        });
-      }
-    } catch (err: any) {
-      logError('QuickAdd', `Task mark failed: ${err.message}`);
     }
   };
 
