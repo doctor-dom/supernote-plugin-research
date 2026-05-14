@@ -123,10 +123,10 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
           }
 
           // Always insert T badge at top-left of handwriting bounds
-          const badgeW = 32;
-          const badgeH = Math.min(32, bounds.bottom - bounds.top + 4);
-          const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
-          const badgeTop = bounds.top;
+          const badgeW = 26;
+          const badgeH = 26;
+          const badgeLeft = Math.max(0, bounds.left - badgeW + 2);
+          const badgeTop = Math.max(0, bounds.top - badgeH + 4);
           log('TaskAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
           await PluginNoteAPI.insertText({
             textContentFull: 'T',
@@ -242,9 +242,9 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         textBold: 0,
         textAlign: 0,
         textFrameStyle: 0,
-        textEditable: 0,
+        textEditable: 1,
         textItalics: 0,
-        textFrameWidthType: 1,
+        textFrameWidthType: 0,
       });
       log('TaskAdd', `insertText result: ${JSON.stringify(insertResult)}`);
 
@@ -261,26 +261,18 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         if (getResult?.success && getResult?.result) {
           const pageEls = getResult.result;
 
-          // Pass 1: Remove lasso strokes
-          let filtered = pageEls.filter((el: any) => !lassoNums.has(el.numInPage));
-          log('TaskAdd', `After stroke removal: ${pageEls.length} -> ${filtered.length}`);
-
-          // Pass 2: Remove link/title elements with dangling controlTrailNums references
-          const remainingNums = new Set(filtered.map((el: any) => el.numInPage));
-          filtered = filtered.filter((el: any) => {
-            if (el.type === 600 && el.link?.controlTrailNums) {
-              const refs: number[] = el.link.controlTrailNums;
-              if (refs.some((n: number) => !remainingNums.has(n))) {
-                log('TaskAdd', `Removing link el numInPage=${el.numInPage} (dangling ref)`);
-                return false;
-              }
+          // Remove lasso strokes AND all link/title elements.
+          // Link elements cause replaceElements error 502 due to native-side
+          // cross-reference validation we can't replicate in JS.
+          let filtered = pageEls.filter((el: any) => {
+            if (lassoNums.has(el.numInPage)) return false;
+            if (el.type === 600) {
+              log('TaskAdd', `Removing link el numInPage=${el.numInPage}`);
+              return false;
             }
-            if (el.type === 100 && el.title?.controlTrailNums) {
-              const refs: number[] = el.title.controlTrailNums;
-              if (refs.some((n: number) => !remainingNums.has(n))) {
-                log('TaskAdd', `Removing title el numInPage=${el.numInPage} (dangling ref)`);
-                return false;
-              }
+            if (el.type === 100) {
+              log('TaskAdd', `Removing title el numInPage=${el.numInPage}`);
+              return false;
             }
             return true;
           });

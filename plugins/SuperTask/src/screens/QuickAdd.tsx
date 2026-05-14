@@ -319,10 +319,10 @@ export default function QuickAdd({nav}: {nav: Nav}) {
           }
 
           // Always insert T badge at top-left of handwriting bounds
-          const badgeW = 32;
-          const badgeH = Math.min(32, bounds.bottom - bounds.top + 4);
-          const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
-          const badgeTop = bounds.top;
+          const badgeW = 26;
+          const badgeH = 26;
+          const badgeLeft = Math.max(0, bounds.left - badgeW + 2);
+          const badgeTop = Math.max(0, bounds.top - badgeH + 4);
           log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
           await PluginNoteAPI.insertText({
             textContentFull: 'T',
@@ -402,9 +402,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         textBold: 0,
         textAlign: 0,
         textFrameStyle: 0,
-        textEditable: 0,
+        textEditable: 1,
         textItalics: 0,
-        textFrameWidthType: 1,
+        textFrameWidthType: 0,
       });
 
       // Save inserted text to file before file-level operations
@@ -420,46 +420,20 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         if (getResult?.success && getResult?.result) {
           const pageEls = getResult.result;
 
-          // Debug: dump all link/title elements to understand their structure
-          for (const el of pageEls) {
-            if (el.type === 600 || el.type === 100) {
-              const keys = el.link ? Object.keys(el.link) : el.title ? Object.keys(el.title) : [];
-              log('QuickAdd', `Element type=${el.type} numInPage=${el.numInPage} keys=[${keys.join(',')}] link.ctn=${JSON.stringify(el.link?.controlTrailNums)} title.ctn=${JSON.stringify(el.title?.controlTrailNums)}`);
-            }
-          }
-
-          // Pass 1: Remove lasso strokes
-          let filtered = pageEls.filter((el: any) => !lassoNums.has(el.numInPage));
-          log('QuickAdd', `After stroke removal: ${pageEls.length} -> ${filtered.length}`);
-
-          // Pass 2: Remove link/title elements with dangling controlTrailNums references.
-          // Any link or title whose controlTrailNums contain a numInPage NOT in the
-          // remaining set will cause replaceElements to fail (error 502/602).
-          const remainingNums = new Set(filtered.map((el: any) => el.numInPage));
-          filtered = filtered.filter((el: any) => {
+          // Remove lasso strokes AND all link/title elements.
+          // Link elements (type 600) cause replaceElements error 502 due to
+          // native-side cross-reference validation we can't fully replicate in JS.
+          // Removing all links is safe: the current task's link is re-applied
+          // after via re-lasso + setLassoStrokeLink when config ON.
+          let filtered = pageEls.filter((el: any) => {
+            if (lassoNums.has(el.numInPage)) return false;
             if (el.type === 600) {
-              // Try multiple paths for controlTrailNums
-              const refs: number[] = el.link?.controlTrailNums || el.controlTrailNums || [];
-              if (refs.length > 0 && refs.some((n: number) => !remainingNums.has(n))) {
-                log('QuickAdd', `Removing link el numInPage=${el.numInPage} (dangling ref: ${JSON.stringify(refs)})`);
-                return false;
-              }
-              // If no refs found, check if ANY property has dangling numInPage values
-              if (refs.length === 0) {
-                log('QuickAdd', `Link el numInPage=${el.numInPage} has no controlTrailNums, removing to be safe`);
-                return false;
-              }
+              log('QuickAdd', `Removing link el numInPage=${el.numInPage}`);
+              return false;
             }
             if (el.type === 100) {
-              const refs: number[] = el.title?.controlTrailNums || el.controlTrailNums || [];
-              if (refs.length > 0 && refs.some((n: number) => !remainingNums.has(n))) {
-                log('QuickAdd', `Removing title el numInPage=${el.numInPage} (dangling ref)`);
-                return false;
-              }
-              if (refs.length === 0) {
-                log('QuickAdd', `Title el numInPage=${el.numInPage} has no controlTrailNums, removing to be safe`);
-                return false;
-              }
+              log('QuickAdd', `Removing title el numInPage=${el.numInPage}`);
+              return false;
             }
             return true;
           });
