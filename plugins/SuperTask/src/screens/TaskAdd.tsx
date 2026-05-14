@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginNoteAPI, PluginFileAPI, PluginCommAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginNoteAPI, PluginCommAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -125,8 +125,8 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
           // Always insert T badge at top-left of handwriting bounds
           const badgeW = 26;
           const badgeH = 26;
-          const badgeLeft = Math.max(0, bounds.left - badgeW + 2);
-          const badgeTop = Math.max(0, bounds.top - badgeH + 4);
+          const badgeLeft = Math.max(0, bounds.left - badgeW - 4);
+          const badgeTop = bounds.top;
           log('TaskAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
           await PluginNoteAPI.insertText({
             textContentFull: 'T',
@@ -206,99 +206,53 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
 
   const handleConvertToText = async () => {
     if (!noteContext) return;
-    const {filePath, pageNum, bounds, lassoElementIds} = noteContext;
-    log('TaskAdd', `CONVERT TO TEXT pressed lassoIds=${lassoElementIds?.length ?? 0}`);
+    const {bounds} = noteContext;
+    log('TaskAdd', `CONVERT TO TEXT pressed`);
     setMarking(true);
 
     try {
-      // Dismiss any active lasso from auto-mark before modifying elements
-      try {
-        await (PluginCommAPI as any).setLassoBoxState(2);
-        log('TaskAdd', 'Dismissed active lasso');
-      } catch (e: any) {
-        log('TaskAdd', `setLassoBoxState failed: ${e.message}`);
-      }
-
-      await PluginNoteAPI.saveCurrentNote();
-      log('TaskAdd', 'saveCurrentNote done');
-
-      // Insert typed text FIRST while note context is still active
+      // Insert typed text at handwriting position (in-memory, lasso still active)
       const fontSize = markAsTextFontSize;
       const textHeight = Math.round(fontSize * 1.4);
-      const estCharWidth = fontSize * 0.6;
-      const textWidth = Math.max(100, Math.round(content.trim().length * estCharWidth + 20));
       const textRect = {
         left: bounds.left,
         top: bounds.top,
-        right: bounds.left + textWidth,
+        right: bounds.left + 200, // auto-width will resize
         bottom: bounds.top + textHeight,
       };
 
-      log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} w=${textWidth} h=${textHeight} fontSize=${fontSize}`);
-      const insertResult = await PluginNoteAPI.insertText({
+      log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} fontSize=${fontSize}`);
+      await PluginNoteAPI.insertText({
         textContentFull: content.trim(),
         textRect,
         fontSize,
         textBold: 0,
         textAlign: 0,
         textFrameStyle: 0,
-        textEditable: 1,
+        textEditable: 0,
         textItalics: 0,
-        textFrameWidthType: 0,
+        textFrameWidthType: 1,
       });
-      log('TaskAdd', `insertText result: ${JSON.stringify(insertResult)}`);
 
-      // Save inserted text to file before file-level operations
+      // Delete handwriting via the still-active lasso.
+      // This avoids replaceElements entirely -- no 502/602 cross-reference
+      // errors, no position shifts. The native layer handles cleanup.
+      log('TaskAdd', 'Calling deleteLassoElements');
+      const deleteResult = await PluginCommAPI.deleteLassoElements();
+      log('TaskAdd', `deleteLassoElements result: ${JSON.stringify(deleteResult)}`);
+
+      // Save to persist both the inserted text and the deletion
       await PluginNoteAPI.saveCurrentNote();
-      log('TaskAdd', 'saveCurrentNote after insertText');
+      log('TaskAdd', 'saveCurrentNote after delete');
 
-      // Remove handwriting strokes via getElements/replaceElements
-      if (lassoElementIds?.length && filePath) {
-        const lassoNums = new Set(lassoElementIds.map(el => el.numInPage));
-        const getResult = await PluginFileAPI.getElements(pageNum, filePath) as any;
-        log('TaskAdd', `getElements: success=${getResult?.success} count=${getResult?.result?.length ?? 0}`);
-
-        if (getResult?.success && getResult?.result) {
-          const pageEls = getResult.result;
-
-          // Remove lasso strokes AND all link/title elements.
-          // Link elements cause replaceElements error 502 due to native-side
-          // cross-reference validation we can't replicate in JS.
-          let filtered = pageEls.filter((el: any) => {
-            if (lassoNums.has(el.numInPage)) return false;
-            if (el.type === 600) {
-              log('TaskAdd', `Removing link el numInPage=${el.numInPage}`);
-              return false;
-            }
-            if (el.type === 100) {
-              log('TaskAdd', `Removing title el numInPage=${el.numInPage}`);
-              return false;
-            }
-            return true;
-          });
-
-          log('TaskAdd', `replaceElements: ${pageEls.length} -> ${filtered.length}`);
-          const replaceResult = await PluginFileAPI.replaceElements(filePath, pageNum, filtered);
-          log('TaskAdd', `replaceElements result: ${JSON.stringify(replaceResult)}`);
-
-          try {
-            const reloadResult = await PluginCommAPI.reloadFile();
-            log('TaskAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
-          } catch (e: any) {
-            log('TaskAdd', `reloadFile failed: ${e.message}`);
-          }
-        }
-      }
-
-      // Always re-lasso the inserted text so user can reposition it.
-      // Config ON: also apply dashed border + Todoist link.
-      const insertedRect = {left: bounds.left, top: bounds.top, right: bounds.left + textWidth, bottom: bounds.top + textHeight};
+      // Re-lasso the inserted text so user can reposition it
       try {
-        const lr = makeLassoRect(insertedRect);
+        const lr = makeLassoRect(textRect);
         log('TaskAdd', `Re-lasso text: ${JSON.stringify(lr)}`);
         const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
         log('TaskAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
 
+        // Config ON: apply dashed border + Todoist link to the text
         if (markAsTextLink && reLassoResult?.success) {
           const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
           await PluginNoteAPI.setLassoStrokeLink({
