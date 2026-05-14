@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 9 complete.** Mark as Text post-action working on-device. Replaces handwriting with editable typed text, dashed border via setLassoStrokeLink on TextBox, re-lassoed for immediate adjustment. Configurable font size and optional Todoist link.
+**Session 10 in progress.** Quick-add overlay working on-device. Lasso workflow redesign underway -- see approved workflow at `docs/workflow-lasso-capture.svg`. Implementation ~70% done, needs final refactor to match spec.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -14,10 +14,10 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 2: Task viewer | Done | Stack nav, tabbed home, project drill-down, detail/add, date picker |
 | 3: Post-action + config | Done | Add Another/Done/View Task flow, silent refresh, tabbed config |
 | 5: Lasso capture | Done | Handwriting OCR via recognizeElements, pre-fills TaskAdd |
-| 5b: Task marking | Done | setLassoStrokeLink (dashed border + link icon) confirmed on-device. T badge via insertText. |
+| 5b: Task marking | Done | setLassoStrokeLink (dashed border + link icon) confirmed on-device |
 | 5c: This Page | Done | Confirmed working on-device (shows tasks for current note/page) |
 | 5d: Mark as Text | Done | Post-action replaces handwriting with editable typed text + dashed border. Configurable font size and Todoist link. |
-| 5e: Quick-add overlay | Designed | Compact pop-up for lasso capture instead of full-screen. Proven approach from sn-calc plugin (transparent root + centered panel). |
+| 5e: Quick-add overlay | **In progress** | Overlay working, workflow redesign needs final implementation. See "Session 10 remaining work" below. |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
 | 9: Task dashboard | Unblocked | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. Ready to build. |
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
@@ -26,16 +26,82 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 8: Polish | Backlog | Loading states, error handling, empty states |
 | Offline mode | Future | Queue tasks locally, sync to Todoist when wifi available |
 
-## To build next
+## Session 10 remaining work
 
-Build one at a time, test each on-device before moving to the next:
+**Reference: `docs/workflow-lasso-capture.svg`** -- approved workflow diagram.
 
-1. ~~**Task marking: setLassoStrokeLink**~~ -- DONE. Dashed border + T badge confirmed on-device.
-2. ~~**Dashboard API probing**~~ -- DONE. All APIs work with note context. See Session 8 results below.
-3. ~~**Mark as Text post-action**~~ -- DONE. Replaces handwriting with typed text, dashed border, re-lassoed. See Session 9.
-4. **Quick-add overlay** -- lasso capture opens compact pop-up panel (transparent root + centered panel pattern). Toolbar button keeps full-screen TaskHome.
-5. **Dashboard v1** -- all APIs confirmed. Build single-page dashboard with bidirectional links using createNote + insertTextLink + insertNotePage.
-6. **Config redesign** -- settings screen is getting bloated. Needs reorganization as features accumulate.
+### What's done this session
+
+1. **QuickAdd overlay** (`src/screens/QuickAdd.tsx`) -- new screen combining OCR capture + compact add form in a centered transparent overlay. Lasso button (200) routes here. Toolbar button (100) still opens full-screen TaskHome. Confirmed working on-device.
+2. **Pre-confirmation marking removed** from ALL screens (QuickAdd, Capture, TaskAdd). No dashed border, T badge, or URL link until user explicitly confirms. Old `insertTaskMark()` function deleted.
+3. **Stale screen state bug fixed** -- `ScreenEntry` now has unique `id` counter, all screen components use `key={current.id}` to force fresh React instances on repeated navigation.
+4. **Description field** added back to QuickAdd form.
+5. **View Tasks** button in success phase + "Tasks" link in header during form phase.
+6. **Recognition logging** added -- `recognizeElements` raw result is now logged on both success and failure to diagnose OCR errors.
+
+### What still needs to be done
+
+The current code has TWO post-confirmation buttons ("Mark" and "Mark as Text"). The approved workflow simplifies this to:
+
+**1. Auto-mark on submit** -- After `createTask()` succeeds in `handleSubmit`, automatically run:
+```
+saveCurrentNote()
+lassoElements(bounds)       // re-lasso the original handwriting
+setLassoStrokeLink(...)     // dashed border, link dest from config
+```
+This marks the handwriting with a dashed border immediately. The link destination respects the "Link to Todoist Task" config toggle (ON = Todoist URL, OFF = self-ref note page).
+
+**2. Rename "Mark as Text" to "Convert to Text"** -- This is now optional. The handwriting is already marked. "Convert to Text" replaces the handwritten strokes with typed text while keeping the dashed border. The button label should be "Convert to Text", not "Mark as Text".
+
+**3. Remove the standalone "Mark" button** -- Auto-mark replaces it. Success screen should show:
+- "Convert to Text" (optional, dashed border)
+- "View Tasks" (opens TaskHome)
+- "Done" (closePluginView)
+
+**4. Apply same changes to TaskAdd.tsx** -- The full-screen TaskAdd (reached via Capture.tsx for doc mode, or via TaskHome > Add) should have the same post-confirmation behavior when `captureMode === 'lasso'` and `noteContext` is present.
+
+**5. Lasso stays active after both operations** -- After auto-mark AND after Convert to Text, the lasso selection should remain active on the result (handwriting or typed text) so the user can reposition immediately.
+
+### Key files to modify
+
+- `src/screens/QuickAdd.tsx` -- main overlay screen. Has `handleMark`, `handleMarkAsText`, `applyStrokeLink` helper. Refactor: move auto-mark into `handleSubmit`, rename handleMarkAsText to handleConvertToText, remove handleMark, update success UI.
+- `src/screens/TaskAdd.tsx` -- full-screen add. Same refactor needed for consistency.
+- `App.tsx` -- no changes needed (routing is correct).
+- `src/screens/Capture.tsx` -- no changes needed (pre-confirmation marking already removed).
+
+### Key SDK call sequence for auto-mark
+
+```javascript
+// After createTask() succeeds:
+await PluginNoteAPI.saveCurrentNote();
+const lassoResult = await PluginCommAPI.lassoElements({
+  left: bounds.left - 4,
+  top: bounds.top - 4,
+  right: bounds.right + 4,
+  bottom: bounds.bottom + 4,
+});
+if (lassoResult?.success) {
+  const destPath = markAsTextLink ? taskUrl : filePath;
+  const linkType = markAsTextLink ? 4 : 0;
+  await PluginNoteAPI.setLassoStrokeLink({
+    destPath,
+    destPage: markAsTextLink ? 0 : pageNum,
+    style: 2,
+    linkType,
+  });
+}
+```
+
+### Known issues to investigate
+
+- **OCR failures in QuickAdd** -- User reports consistent "can't read handwriting" errors that don't occur with native recognition. Diagnostic logging added (raw recognizeElements result). Check uploaded logs after next test for the actual error payload. May be related to element count or page context.
+- **Persistent dashed border without link** -- No known way to have dashed border via SDK without a link element. The self-ref note link (linkType 0, destPath = note file) is the workaround for "visual mark only" config.
+
+## To build after Session 10
+
+1. **Dashboard v1** -- all APIs confirmed. Build single-page dashboard with bidirectional links using createNote + insertTextLink + insertNotePage.
+2. **Config redesign** -- settings screen is getting bloated. Needs reorganization as features accumulate.
+3. **Test surgical task processing with dense handwriting** -- verify Mark/Convert works correctly when page has lots of handwriting. Key concern: numInPage matching and link cross-reference cleanup.
 
 ## Architecture
 
@@ -452,3 +518,37 @@ bash buildPlugin.sh                          # 2. Build
 - `TaskAdd.tsx`: Added Mark as Text handler with full pipeline (insertText -> getElements -> filter by numInPage -> replaceElements -> reloadFile -> lassoElements -> setLassoStrokeLink). Configurable font size and Todoist link toggle.
 - `Capture.tsx`: Collects lasso element IDs (uuid, numInPage, type) for later matching in TaskAdd
 - `Config.tsx`: Added "Mark as Text Font Size" picker (24-40) and "Link to Todoist Task" toggle in Preferences
+
+### Session 10 -- 2026-05-13/14: Quick-add overlay, workflow redesign
+
+**Quick-add overlay -- confirmed working on-device:**
+- New `QuickAdd.tsx` screen: combines OCR capture + compact add form in a centered panel over the note page
+- Transparent root background lets the note show through, tap outside to dismiss
+- Lasso button (200) routes to QuickAdd overlay, toolbar button (100) keeps full-screen TaskHome
+- Form: task title (pre-filled from OCR, editable), priority, project, description
+- "Tasks" link in header to jump to TaskHome, "View Tasks" button in success phase
+
+**Pre-confirmation marking removed from all screens:**
+- `setLassoStrokeLink` was firing DURING capture (before task creation) in Capture.tsx and QuickAdd.tsx -- removed
+- `insertTaskMark` (auto T badge) was firing on submit in TaskAdd.tsx -- removed along with the function
+- `strokeLinkApplied` field removed from NoteContext type across all files
+- All note marking is now strictly post-confirmation and user-initiated
+
+**Stale screen state bug found and fixed:**
+- Symptom: second lasso capture showed stale "Task added!" success screen from previous capture, no OCR ran
+- Root cause: `resetTo('capture-lasso')` when current screen is already `capture-lasso` -- React reuses the component instance, `useEffect([], [])` doesn't re-fire
+- Fix: `ScreenEntry` now carries a unique `id` counter (incremented on push/replace/resetTo), all screen components use `key={current.id}` to force fresh React instances
+
+**Workflow redesign approved (not yet implemented):**
+- See `docs/workflow-lasso-capture.svg` for the full approved workflow diagram
+- Key changes: auto-mark on submit (dashed border on handwriting immediately after task creation), "Mark as Text" renamed to "Convert to Text" (optional, replaces handwriting with typed text), standalone "Mark" button removed
+- Link destination respects "Link to Todoist Task" config toggle for both auto-mark and Convert to Text
+- Lasso selection stays active after both operations for repositioning
+- See "Session 10 remaining work" section above for detailed implementation instructions
+
+**Code changes this session:**
+- `QuickAdd.tsx`: New file -- overlay capture + compact add form, OCR, mark handlers, applyStrokeLink helper
+- `App.tsx`: Added QuickAdd import/route, transparent container for overlay, `navIdCounter` + `key={current.id}` on all screens
+- `Capture.tsx`: Removed setLassoStrokeLink block, removed unused PluginNoteAPI import
+- `TaskAdd.tsx`: Removed insertTaskMark function + call, removed strokeLinkApplied from NoteContext, added handleMark + applyStrokeLink (to be refactored per workflow)
+- `docs/workflow-lasso-capture.svg`: New approved workflow diagram
