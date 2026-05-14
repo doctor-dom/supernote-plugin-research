@@ -372,7 +372,6 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     setMarking(true);
 
     try {
-      // Insert typed text at handwriting position (in-memory, lasso still active)
       const fontSize = markAsTextFontSize;
       const textHeight = Math.round(fontSize * 1.4);
       const textRect = {
@@ -382,6 +381,23 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         bottom: bounds.top + textHeight,
       };
 
+      // Step 1: Re-lasso the handwriting to get a fresh lasso context.
+      // The original lasso expired during auto-mark (insertText/saveCurrentNote kills it).
+      // Use tight bounds so we don't accidentally catch the T badge (which is to the left).
+      log('QuickAdd', `Re-lasso handwriting: ${JSON.stringify(bounds)}`);
+      const reLassoHw = await (PluginCommAPI as any).lassoElements(bounds);
+      log('QuickAdd', `Re-lasso handwriting result: ${JSON.stringify(reLassoHw)}`);
+
+      // Step 2: Delete the lasso'd handwriting. Native handles cross-ref cleanup.
+      if (reLassoHw?.success) {
+        log('QuickAdd', 'Calling deleteLassoElements');
+        const deleteResult = await PluginCommAPI.deleteLassoElements();
+        log('QuickAdd', `deleteLassoElements result: ${JSON.stringify(deleteResult)}`);
+      } else {
+        log('QuickAdd', 'Re-lasso failed, skipping delete');
+      }
+
+      // Step 3: Insert typed text where handwriting was
       log('QuickAdd', `insertText: l=${textRect.left} t=${textRect.top} fontSize=${fontSize}`);
       await PluginNoteAPI.insertText({
         textContentFull: content.trim(),
@@ -395,18 +411,11 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         textFrameWidthType: 1,
       });
 
-      // Delete handwriting via the still-active lasso.
-      // This avoids replaceElements entirely -- no 502/602 cross-reference
-      // errors, no position shifts. The native layer handles cleanup.
-      log('QuickAdd', 'Calling deleteLassoElements');
-      const deleteResult = await PluginCommAPI.deleteLassoElements();
-      log('QuickAdd', `deleteLassoElements result: ${JSON.stringify(deleteResult)}`);
-
-      // Save to persist both the inserted text and the deletion
+      // Step 4: Save
       await PluginNoteAPI.saveCurrentNote();
-      log('QuickAdd', 'saveCurrentNote after delete');
+      log('QuickAdd', 'saveCurrentNote after convert');
 
-      // Re-lasso the inserted text so user can reposition it
+      // Step 5: Re-lasso the inserted text so user can reposition it
       try {
         const lr = lassoRect(textRect);
         log('QuickAdd', `Re-lasso text: ${JSON.stringify(lr)}`);
