@@ -66,12 +66,13 @@ Key SDK source files to check:
 - **FileUtils**: `getExportPath()`, `exists()`, `makeDir()`, `copyFile()`, `deleteFile()`, `listFiles()` -- **NO `writeFile()` method exists**
 - **PluginManager**: `getPluginDirPath()`, `closePluginView()`, `registerButton()`, `getDeviceType()`
 
-### File I/O limitations (confirmed on-device)
+### File I/O (confirmed on-device)
 - **`FileUtils.writeFile()` does not exist** -- not in the TurboModule interface at all
-- **`fetch('file://...')` does not work** -- "undefined is not a function"
-- **`PluginFileAPI.createNote()` fails with error 802** when system template path doesn't resolve to a file on device
+- **`fetch('file:///...')` WORKS for reading** -- returns HTTP status 0 (not 200), so `response.ok` is false. Must ignore status and call `response.json()` or `response.text()` directly. Reference: sn-keyworder plugin uses this for sideloaded JSON config.
+- **Write workaround: .note file as storage** -- create a hidden `.note` file via `createNote({template: 'none'})`, stash JSON as a text element via `insertElements(type 500)`, read back via `getElements`. Full round-trip persistence without writeFile. Reference: sn-keyworder `src/storage.ts`.
+- **`FileUtils.exists()` + `makeDir()`** -- can check and create directories (e.g., `/MyStyle/SuperTask/`)
+- **`PluginFileAPI.createNote()` fails with error 802** when system template path doesn't resolve to a file on device. Use `template: 'none'` for storage notes.
 - **ADB is locked down** -- `adb devices` sees the Supernote, but `shell`, `logcat`, `push`, `pull` all return "error: not support command"
-- No known way to write arbitrary files to the filesystem from JS. Config persistence remains unsolved.
 
 ### Learnings from SmartGestures development
 - `event_pen_up` payload elements can't be read directly; must call `getLastElement()`
