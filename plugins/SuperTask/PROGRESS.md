@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 16 complete.** Bidirectional note-task linking data layer built and confirmed on-device. T badge removed, replaced with `supertask://task/{id}` encoded in link destPath. Task registry, page-aware discovery, Device tab, and TaskDetail back-reference all working.
+**Session 17 in progress.** Interactive bidirectional navigation. View Note button works (same-note confirmed). Gesture detector built but motion listener doesn't fire -- active investigation.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -23,12 +23,74 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | Native modules | Done | Gradle build pipeline for native modules. react-native-fs added. ProGuard/R8 configured. |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
 | 10a: Bidirectional linking (data) | Done | supertask:// links in notes, description back-references, task registry, page/device discovery. See Session 16. |
-| 10b: Bidirectional linking (interactive) | Next | Long-press finger gesture to open task from note. "View Note" button in TaskDetail. |
+| 10b: Bidirectional linking (interactive) | In Progress | View Note button done. Gesture detector built but motion listener activation blocked (see session 17). |
 | 10c: Offline mode | Future | Cache last API response in registry. Queue creates/completes locally. Sync on reconnect. |
 | 9: Task dashboard | Backlog | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. |
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
+
+## Session 17 -- interactive bidirectional navigation
+
+Branch: `supertask-ui-redesign` (continued from session 16)
+Plan: `~/.claude/plans/groovy-percolating-pelican.md`
+
+### What's done
+
+1. **View Note button in TaskDetail** -- inside the "Captured from" dashed-border section. Same-note case works: closes plugin with "Go to page N" hint. Different-note case tries `openFilePath()` then shows path as fallback.
+
+2. **Gesture detector module** -- `src/utils/gestureDetector.js`. Registers motion listener, detects finger long-press (>800ms, <20px drift), scans page elements for supertask:// links, hit-tests touch point against link bounds, sets deep link global, calls `showPluginView()`.
+
+3. **Deep link wiring in App.tsx** -- `getInitialScreen()` reads `global.__superTaskDeepLink`. `DeepLinkLoader` screen fetches task from API/registry, navigates to TaskDetail.
+
+4. **Navigation diagnostics** -- four test buttons in Diagnostics screen for `openFilePath`, `Linking.openURL`, `showRattaDialog`, and link element bounds.
+
+### Confirmed on-device
+
+- **Link element bounds are populated** -- stroke links (cat=1) have real X, Y, width, height in page coordinates. Example: `X=450 Y=468 w=338 h=99`. Hit-testing will work.
+- **`openFilePath()` with .note path** -- returns `true` but opens the **file manager** at the note location, not the note editor. Not useful for cross-note navigation.
+- **`Linking.openURL('file://...')`** -- dead. Android blocks file:// URIs in intents ("exposed beyond app through Intent.getData()").
+- **`showRattaDialog()`** -- native dialog works. Shows message + two buttons, returns which was tapped. Useful for user prompts but not navigation.
+- **View Note (same note)** -- `closePluginView()` returns user to the note. Works.
+
+### Active investigation: motion listener won't fire from gesture detector
+
+**The bug:** `registerMotionListener` called from `index.js` init or `App.tsx` useEffect registers successfully (returns subscription) but never fires events. The identical API call from the Diagnostics "Start & Close" button DOES fire events.
+
+**What we've tried:**
+1. Register in `index.js` before UI shows -- no events
+2. Register in `App.tsx` useEffect (during UI mount) -- no events
+3. Register in Diagnostics, then `closePluginView()` 500ms later -- **events fire**
+
+**The working pattern (Diagnostics):**
+```js
+_motionSub = PluginManager.registerMotionListener(1, {onMsg: ...});
+setTimeout(() => PluginManager.closePluginView(), 500);
+// Events fire on canvas after close
+```
+
+**What's different about the failing cases:**
+- Time gap between register and closePluginView (minutes vs 500ms)
+- Register happens before UI has been shown (index.js) or at mount (useEffect)
+- The Diagnostics test registers then IMMEDIATELY closes
+
+**Theories to test:**
+- Native side may require register + close in quick succession to "arm" the listener
+- Listener may need to be registered AFTER `showPluginView()` has been called (Diagnostics runs while UI is shown)
+- There may be a native timeout that invalidates listeners after a period of inactivity
+- `registerType` parameter (0=always first, 1=normal, 2=always last) may affect persistence
+
+**Goal:** Make the gesture detector active automatically whenever a note is open (plugin JS loads at note open). No manual activation step.
+
+**Next steps to try:**
+- Register listener from index.js + call `showPluginView()` then `closePluginView()` immediately to activate it (may flash UI briefly)
+- Try `registerType: 0` or `registerType: 2` instead of `1`
+- Check if `registerEventListener('event_pen_up', ...)` fires from init (different API, may have different lifecycle)
+- Inspect sn-plugin-lib PluginManager.ts wrapper for registerMotionListener to see if it does anything beyond the native call
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 17 build with View Note + gesture detector (6.82MB, RNFS)
 
 ## Session 16 -- bidirectional note-task linking
 
