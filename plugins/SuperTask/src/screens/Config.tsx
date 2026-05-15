@@ -4,7 +4,7 @@
  * Two tabs: Connections (API token, config source) and Preferences
  * (all settings use horizontal controls for space efficiency).
  *
- * Config persistence: reads/writes config via .note file storage (no native modules).
+ * Config persistence: reads/writes config via RNFS JSON file (react-native-fs).
  */
 
 import React, {useState, useEffect} from 'react';
@@ -18,7 +18,7 @@ import {
   Clipboard,
 } from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
-import {loadConfig, saveConfig, getConfigSource, reloadConfig} from '../utils/config';
+import {loadConfig, saveConfig, getConfigSource, reloadConfig, wasTemplateGenerated} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 
@@ -50,6 +50,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [debugMode, setDebugMode] = useState(false);
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
   const [markAsTextLink, setMarkAsTextLink] = useState(false);
+  const [showTokenInfo, setShowTokenInfo] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -157,7 +158,12 @@ export default function Config({onNavigate, nav}: Props) {
   // ── Connections Tab ──────────────────────────────────────
   const renderConnectionsTab = () => (
     <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-      <Text style={s.sectionTitle}>Todoist API Token</Text>
+      <View style={s.inlineRow}>
+        <Text style={s.sectionTitle}>Todoist API Token</Text>
+        <Pressable style={s.infoBtn} onPress={() => setShowTokenInfo(true)}>
+          <Text style={s.infoBtnText}>?</Text>
+        </Pressable>
+      </View>
       <View style={s.tokenRow}>
         <TextInput
           style={[s.input, {flex: 1}]}
@@ -174,6 +180,15 @@ export default function Config({onNavigate, nav}: Props) {
         </Pressable>
       </View>
       <Text style={s.hint}>todoist.com/prefs/integrations &gt; API token</Text>
+
+      {!token && wasTemplateGenerated() && (
+        <View style={s.setupNotice}>
+          <Text style={s.setupNoticeText}>
+            Config file created at MyStyle/SuperTask/supertask-config.json.
+            Connect via USB to add your token, or tap ? above for all options.
+          </Text>
+        </View>
+      )}
 
       <View style={s.inlineRow}>
         <Pressable style={s.btnAction} onPress={handleTestConnection}>
@@ -371,6 +386,49 @@ export default function Config({onNavigate, nav}: Props) {
         {activeTab === 'connections' ? renderConnectionsTab() : renderPreferencesTab()}
       </View>
 
+      {/* Token info popup */}
+      {showTokenInfo && (
+        <Pressable style={s.overlayCenter} onPress={() => setShowTokenInfo(false)}>
+          <Pressable style={s.overlayModal} onPress={() => {}}>
+            <Text style={s.overlayTitle}>How to enter your API token</Text>
+            <Text style={s.overlayHint}>
+              Go to todoist.com/prefs/integrations and scroll to "API token" to find yours.
+              You only need to do this once -- your token is saved to the device and persists across reinstalls.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>1. Edit config via USB (easiest)</Text>
+            <Text style={s.methodBody}>
+              A config file was created on your device at:{'\n'}
+              MyStyle/SuperTask/supertask-config.json{'\n'}
+              {'\n'}
+              Connect your Supernote to a computer via USB, open the file in a text editor, and replace YOUR_TOKEN_HERE with your actual token. Save the file and reopen the plugin.{'\n'}
+              {'\n'}
+              Your plain text token will be automatically obfuscated the next time the plugin loads.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>2. Bluetooth keyboard</Text>
+            <Text style={s.methodBody}>
+              Pair a Bluetooth keyboard (Supernote Settings &gt; Bluetooth), then tap the token field above and paste with Ctrl+V. Tap Save when done.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>3. On-screen keyboard</Text>
+            <Text style={s.methodBody}>
+              Tap the token field above and type the 40-character token using the on-screen keyboard. Slow, but you only need to do it once. Tap Save when done.
+            </Text>
+
+            <Pressable style={s.overlayCloseBtn} onPress={() => setShowTokenInfo(false)}>
+              <Text style={s.overlayCloseBtnText}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      )}
+
       {/* Save toast */}
       {saveStatus ? (
         <View style={s.toast}>
@@ -550,6 +608,104 @@ const s = StyleSheet.create({
   sizeBtnActive: {backgroundColor: '#000000'},
   sizeBtnText: {fontSize: 14, color: '#000000'},
   sizeBtnTextActive: {color: '#ffffff'},
+
+  // Setup notice (first launch)
+  setupNotice: {
+    marginTop: 8,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderStyle: 'dashed',
+    borderRadius: 4,
+    backgroundColor: '#f8f8f8',
+  },
+  setupNoticeText: {
+    fontSize: 13,
+    color: '#000000',
+    lineHeight: 18,
+  },
+
+  // Info button
+  infoBtn: {
+    width: 28,
+    height: 28,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  infoBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+  },
+
+  // Info popup overlay
+  overlayCenter: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    zIndex: 20,
+    elevation: 20,
+  },
+  overlayModal: {
+    marginHorizontal: 24,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    borderWidth: 3,
+    borderColor: '#000000',
+    borderRadius: 4,
+    backgroundColor: '#ffffff',
+    alignSelf: 'stretch',
+    maxHeight: '85%',
+  },
+  overlayTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000000',
+    marginBottom: 6,
+  },
+  overlayHint: {
+    fontSize: 13,
+    color: '#666666',
+    lineHeight: 18,
+  },
+  overlaySeparator: {
+    height: 1,
+    backgroundColor: '#cccccc',
+    marginVertical: 12,
+  },
+  methodLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+    marginBottom: 4,
+  },
+  methodBody: {
+    fontSize: 13,
+    color: '#000000',
+    lineHeight: 19,
+  },
+  overlayCloseBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  overlayCloseBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+  },
 
   // Toast
   toast: {
