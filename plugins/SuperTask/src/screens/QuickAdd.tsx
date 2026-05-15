@@ -19,6 +19,7 @@ import {PluginManager, PluginCommAPI, PluginNoteAPI, PluginFileAPI} from 'sn-plu
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
+import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
 
@@ -245,6 +246,16 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       });
       log('QuickAdd', `Created task id=${task?.id}`);
       createdTaskRef.current = task;
+
+      // Write to local task registry
+      if (nc && task?.id) {
+        const noteFile = nc.filePath.split('/').pop() || '';
+        await registryAddTask(task.id, {
+          content: content.trim(),
+          noteFile,
+          pageNum: nc.pageNum,
+        });
+      }
 
       // Don't mark yet -- lasso context stays alive until the user
       // picks "Done" (mark handwriting) or "Convert to Text" (delete + replace).

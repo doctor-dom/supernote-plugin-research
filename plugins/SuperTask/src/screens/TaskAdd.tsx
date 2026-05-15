@@ -15,6 +15,7 @@ import {PluginManager, PluginNoteAPI, PluginCommAPI} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
+import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
 import DatePicker from '../components/DatePicker';
@@ -127,6 +128,14 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         } catch (err: any) {
           log('TaskAdd', `Auto-mark failed (non-fatal): ${err.message}`);
         }
+
+        // Write to local task registry
+        const noteFile = noteContext.filePath.split('/').pop() || '';
+        await registryAddTask(task?.id, {
+          content: content.trim(),
+          noteFile,
+          pageNum: noteContext.pageNum,
+        });
       }
 
       setSubmitting(false);
