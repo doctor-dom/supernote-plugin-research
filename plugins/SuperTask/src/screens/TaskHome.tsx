@@ -13,7 +13,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
-import {getTasksForPage} from '../utils/taskRegistry';
+import {getTasksForPage, getAllTasks as getAllRegistryTasks} from '../utils/taskRegistry';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasks, getProjects, completeTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -36,6 +36,7 @@ const TABS = [
   {key: 'today', label: 'Today'},
   {key: 'upcoming', label: 'Upcoming'},
   {key: 'projects', label: 'Projects'},
+  {key: 'device', label: 'Device'},
 ];
 
 type ProjectMap = Record<string, string>;
@@ -50,6 +51,7 @@ export default function TaskHome({nav}: Props) {
   const [pageRef, setPageRef] = useState('');
   const [pageTaskIds, setPageTaskIds] = useState<string[]>([]);
   const [registryPageTasks, setRegistryPageTasks] = useState<any[]>([]);
+  const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
   const [debugMode, setDebugMode] = useState(false);
 
   // Load default tab from config and detect current page on mount
@@ -100,7 +102,7 @@ export default function TaskHome({nav}: Props) {
           log('TaskHome', `Element scan failed: ${e.message}`);
         }
 
-        // Read from local registry
+        // Read from local registry -- page tasks
         try {
           const regTasks = await getTasksForPage(noteFile, pageNum);
           setRegistryPageTasks(regTasks);
@@ -110,6 +112,15 @@ export default function TaskHome({nav}: Props) {
         }
       } catch (e: any) {
         log('TaskHome', `Page context detection failed: ${e.message}`);
+      }
+
+      // Load all device tasks from registry (independent of page context)
+      try {
+        const allReg = await getAllRegistryTasks();
+        setDeviceTasks(allReg);
+        log('TaskHome', `Registry: ${allReg.length} total device tasks`);
+      } catch (e: any) {
+        log('TaskHome', `Device registry read failed: ${e.message}`);
       }
     })();
   }, []);
@@ -260,6 +271,7 @@ export default function TaskHome({nav}: Props) {
 
     if (activeTab === 'today') return renderTodayTab();
     if (activeTab === 'upcoming') return renderUpcomingTab();
+    if (activeTab === 'device') return renderDeviceTab();
     return renderProjectsTab();
   };
 
@@ -403,6 +415,71 @@ export default function TaskHome({nav}: Props) {
           </Pressable>
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
+      />
+    );
+  };
+
+  const renderDeviceTab = () => {
+    if (deviceTasks.length === 0) {
+      return (
+        <View style={styles.centered}>
+          <Text style={styles.emptyText}>No tasks captured on this device</Text>
+        </View>
+      );
+    }
+
+    // Group by noteFile
+    const byNote: Record<string, any[]> = {};
+    for (const dt of deviceTasks) {
+      const key = dt.noteFile || 'Unknown';
+      if (!byNote[key]) byNote[key] = [];
+      byNote[key].push(dt);
+    }
+
+    // Build flat list with headers
+    const items: any[] = [];
+    for (const [noteFile, noteTasks] of Object.entries(byNote)) {
+      const label = noteFile.replace('.note', '');
+      items.push({type: 'header', key: `h-${noteFile}`, title: label, count: noteTasks.length});
+      for (const dt of noteTasks) {
+        // Try to find the full Todoist task for richer display
+        const fullTask = tasks.find(t => t.id === dt.id);
+        items.push({
+          type: 'task',
+          key: dt.id,
+          task: fullTask || {id: dt.id, content: dt.content, _registryOnly: true},
+          pageNum: dt.pageNum,
+        });
+      }
+    }
+
+    return (
+      <FlatList
+        data={items}
+        keyExtractor={item => item.key}
+        renderItem={({item}) => {
+          if (item.type === 'header') {
+            return <SectionHeader title={item.title} count={item.count} />;
+          }
+          return (
+            <View style={styles.deviceTaskRow}>
+              <View style={styles.deviceTaskPage}>
+                <Text style={styles.deviceTaskPageText}>p.{item.pageNum}</Text>
+              </View>
+              <View style={{flex: 1}}>
+                <TaskRow
+                  task={item.task}
+                  onComplete={handleComplete}
+                  onPress={handleTaskPress}
+                  showProject={projectMap[item.task.project_id]}
+                />
+              </View>
+            </View>
+          );
+        }}
+        ItemSeparatorComponent={({leadingItem}) =>
+          leadingItem?.type !== 'header' ? <View style={styles.separator} /> : null
+        }
       />
     );
   };
@@ -646,6 +723,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#000000',
+  },
+  deviceTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deviceTaskPage: {
+    width: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deviceTaskPageText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#666666',
   },
   footer: {
     flexDirection: 'row',

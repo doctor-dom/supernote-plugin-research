@@ -31,9 +31,21 @@ type Props = {
   projects: any[];
 };
 
+// Parse note context from description: "[SuperTask] Captured from: {file} p.{N}"
+function parseNoteContext(desc: string): {noteFile: string; pageNum: number; userDescription: string} | null {
+  if (!desc) return null;
+  const match = desc.match(/\[SuperTask\] Captured from: (.+\.note) p\.(\d+)/);
+  if (!match) return null;
+  // Strip the metadata block from the user-visible description
+  const userDescription = desc.replace(/\n*---\n\[SuperTask\] Captured from: .+$/, '').trim();
+  return {noteFile: match[1], pageNum: parseInt(match[2], 10), userDescription};
+}
+
 export default function TaskDetail({nav, task, projects}: Props) {
   const [content, setContent] = useState(task?.content || '');
-  const [description, setDescription] = useState(task?.description || '');
+  const rawDescription = task?.description || '';
+  const noteContext = parseNoteContext(rawDescription);
+  const [description, setDescription] = useState(noteContext ? noteContext.userDescription : rawDescription);
   const [priority, setPriority] = useState(task?.priority || 1);
   const [dueString, setDueString] = useState(task?.due?.string || task?.due?.date || '');
   const [projectId, setProjectId] = useState(task?.project_id || null);
@@ -44,7 +56,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
 
   useEffect(() => {
     log('TaskDetail', `MOUNT task=${task?.id} content="${task?.content}" projects=${projects?.length}`);
-    log('TaskDetail', `task keys: ${task ? Object.keys(task).join(', ') : 'NULL'}`);
+    log('TaskDetail', `noteContext: ${noteContext ? `${noteContext.noteFile} p.${noteContext.pageNum}` : 'none'}`);
     setConfigLoader(loadConfig);
   }, []);
 
@@ -66,9 +78,16 @@ export default function TaskDetail({nav, task, projects}: Props) {
     setStatus('Saving...');
 
     try {
+      // Re-append note context metadata if it existed
+      let fullDescription = description.trim();
+      if (noteContext) {
+        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteContext.noteFile} p.${noteContext.pageNum}`;
+        fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
+      }
+
       await updateTask(task.id, {
         content: content.trim(),
-        description: description.trim(),
+        description: fullDescription,
         priority,
         dueString: dueString.trim() || undefined,
         projectId: projectId || undefined,
@@ -141,6 +160,15 @@ export default function TaskDetail({nav, task, projects}: Props) {
           </Text>
         </Pressable>
       </View>
+
+      {noteContext && (
+        <View style={styles.noteContext}>
+          <Text style={styles.noteContextLabel}>Captured from</Text>
+          <Text style={styles.noteContextValue}>
+            {noteContext.noteFile.replace('.note', '')} — page {noteContext.pageNum}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.section}>
         <Text style={styles.label}>Task</Text>
@@ -256,6 +284,25 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   deleteText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000000',
+  },
+  noteContext: {
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderStyle: 'dashed',
+    borderRadius: 4,
+    padding: 12,
+    marginBottom: 20,
+  },
+  noteContextLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666666',
+    marginBottom: 4,
+  },
+  noteContextValue: {
     fontSize: 15,
     fontWeight: '600',
     color: '#000000',
