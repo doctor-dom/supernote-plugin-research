@@ -22,6 +22,8 @@ import Config from './src/screens/Config';
 import Diagnostics from './src/screens/Diagnostics';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
 import {loadConfig} from './src/utils/config';
+import {getTask as getRegistryTask} from './src/utils/taskRegistry';
+import {setConfigLoader, getTasks, getProjects} from './src/api/todoist';
 
 type ScreenEntry = {
   name: string;
@@ -31,6 +33,18 @@ type ScreenEntry = {
 
 // Read the initial button ID set by index.js before React mounted
 function getInitialScreen(): ScreenEntry {
+  // Check for deep link from gesture detector (long-press on supertask:// link)
+  const deepLink = global.__superTaskDeepLink;
+  if (deepLink) {
+    global.__superTaskDeepLink = null; // Consume it
+    if (deepLink.action === 'view-task' && deepLink.taskId) {
+      return {name: 'deep-link-loading', params: {taskId: deepLink.taskId}, id: 0};
+    }
+    if (deepLink.action === 'this-page') {
+      return {name: 'task-home', params: {focusTab: 'today'}, id: 0};
+    }
+  }
+
   const raw = global.__superTaskButtonId;
   // Coerce to number for comparison -- SDK may pass string or number
   const buttonId = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
@@ -38,6 +52,70 @@ function getInitialScreen(): ScreenEntry {
   if (buttonId === 300) return {name: 'capture-doc', id: 0};
   if (raw === 'config') return {name: 'config', id: 0};
   return {name: 'task-home', id: 0};
+}
+
+/**
+ * DeepLinkLoader -- transitional screen that resolves a task ID into
+ * full task data, then navigates to TaskDetail.
+ */
+function DeepLinkLoader({taskId, nav}: {taskId: string; nav: any}) {
+  const [status, setStatus] = useState('Loading task...');
+
+  useEffect(() => {
+    (async () => {
+      log('DeepLink', `Loading task ${taskId}`);
+      setConfigLoader(loadConfig);
+
+      try {
+        // Fetch projects first (needed by TaskDetail)
+        let projects: any[] = [];
+        try {
+          projects = await getProjects() || [];
+        } catch (e: any) {
+          log('DeepLink', `Projects fetch failed: ${e.message}`);
+        }
+
+        // Try Todoist API for full task data
+        try {
+          const allTasks = await getTasks();
+          const task = (allTasks || []).find((t: any) => t.id === taskId);
+          if (task) {
+            log('DeepLink', `Found task in API: "${task.content}"`);
+            nav.replace('task-detail', {task, projects});
+            return;
+          }
+        } catch (e: any) {
+          log('DeepLink', `API fetch failed: ${e.message}`);
+        }
+
+        // Fallback: build minimal task object from registry
+        const regTask = await getRegistryTask(taskId);
+        if (regTask) {
+          log('DeepLink', `Found task in registry: "${regTask.content}"`);
+          nav.replace('task-detail', {
+            task: {id: taskId, content: regTask.content, description: '', priority: 1},
+            projects,
+          });
+          return;
+        }
+
+        // Not found anywhere
+        log('DeepLink', `Task ${taskId} not found`);
+        setStatus(`Task not found: ${taskId}`);
+        setTimeout(() => nav.resetTo('task-home'), 2000);
+      } catch (e: any) {
+        logError('DeepLink', e);
+        setStatus(`Error: ${e.message}`);
+        setTimeout(() => nav.resetTo('task-home'), 2000);
+      }
+    })();
+  }, []);
+
+  return (
+    <View style={{flex: 1, backgroundColor: '#ffffff', justifyContent: 'center', alignItems: 'center', padding: 24}}>
+      <Text style={{fontSize: 16, fontWeight: '700', color: '#000000'}}>{status}</Text>
+    </View>
+  );
 }
 
 let navIdCounter = 0;
@@ -204,6 +282,9 @@ function App(): React.JSX.Element {
       )}
       {current.name === 'capture-doc' && (
         <Capture key={current.id} mode="doc" nav={nav} />
+      )}
+      {current.name === 'deep-link-loading' && (
+        <DeepLinkLoader key={current.id} taskId={current.params?.taskId} nav={nav} />
       )}
       {current.name === 'config' && (
         <Config key={current.id} onNavigate={(s: string) => resetTo(s)} nav={nav} />
