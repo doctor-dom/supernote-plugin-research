@@ -44,7 +44,7 @@ function parseNoteContext(desc: string): {noteFile: string; pageNum: number; use
 export default function TaskDetail({nav, task, projects}: Props) {
   const [content, setContent] = useState(task?.content || '');
   const rawDescription = task?.description || '';
-  const noteContext = parseNoteContext(rawDescription);
+  const [noteContext] = useState(() => parseNoteContext(rawDescription));
   const [description, setDescription] = useState(noteContext ? noteContext.userDescription : rawDescription);
   const [priority, setPriority] = useState(task?.priority || 1);
   const [dueString, setDueString] = useState(task?.due?.string || task?.due?.date || '');
@@ -95,7 +95,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
       log('TaskDetail', `Updated task ${task.id}`);
       // Update the task reference so isDirty resets
       task.content = content.trim();
-      task.description = description.trim();
+      task.description = fullDescription;
       task.priority = priority;
       task.due = dueString.trim() ? {...(task.due || {}), string: dueString.trim()} : task.due;
       task.project_id = projectId;
