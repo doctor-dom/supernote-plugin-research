@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 15 complete.** Investigated pure-JS config persistence to reduce build size. Replaced crypto-js with XOR obfuscation. Attempted .note file storage (sn-keyworder pattern) but untested on-device. RNFS backup preserved. Settings screen now accessible from TaskHome header.
+**Session 16 complete.** Bidirectional note-task linking data layer built and confirmed on-device. T badge removed, replaced with `supertask://task/{id}` encoded in link destPath. Task registry, page-aware discovery, Device tab, and TaskDetail back-reference all working.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -14,19 +14,60 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 2: Task viewer | Done | Stack nav, tabbed home, project drill-down, detail/add, date picker |
 | 3: Post-action + config | Done | Add Another/Done/View Task flow, silent refresh, tabbed config |
 | 5: Lasso capture | Done | Handwriting OCR via recognizeElements, pre-fills TaskAdd |
-| 5b: Task marking | Done | setLassoStrokeLink (dashed border + link icon) confirmed on-device |
-| 5c: This Page | Done | Confirmed working on-device (shows tasks for current note/page) |
-| 5d: Mark as Text | Done | Post-action replaces handwriting with editable typed text + dashed border. Configurable font size and Todoist link. |
-| 5e: Quick-add overlay | Done | Overlay working. Convert to Text fixed (deferred marking, original lasso context). |
-| 5f: Settings redesign | Done | Compact horizontal e-ink layout, tabbed Connections/Preferences, grouped settings. |
-| 7: Config persistence | In progress | .note file storage (pure JS, 279KB build) untested. RNFS build (6.8MB) preserved as fallback. See Session 15 notes. |
+| 5b: Task marking | Done | Replaced with supertask:// linking (see 10a). T badge removed. |
+| 5c: This Page | Done | Element scan + registry + description matching. Confirmed on-device. |
+| 5d: Mark as Text | Done | Convert to Text applies supertask:// link to typed text box. |
+| 5e: Quick-add overlay | Done | Overlay working. Both Done and Convert to Text use supertask:// link. |
+| 5f: Settings redesign | Done | Compact horizontal e-ink layout, tabbed Connections/Preferences. markAsTextLink setting removed. |
+| 7: Config persistence | Done | RNFS build with XOR obfuscation. |
 | Native modules | Done | Gradle build pipeline for native modules. react-native-fs added. ProGuard/R8 configured. |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
-| 9: Task dashboard | Unblocked | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. Ready to build. |
+| 10a: Bidirectional linking (data) | Done | supertask:// links in notes, description back-references, task registry, page/device discovery. See Session 16. |
+| 10b: Bidirectional linking (interactive) | Next | Long-press finger gesture to open task from note. "View Note" button in TaskDetail. |
+| 10c: Offline mode | Future | Cache last API response in registry. Queue creates/completes locally. Sync on reconnect. |
+| 9: Task dashboard | Backlog | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. |
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
-| Offline mode | Future | Queue tasks locally, sync to Todoist when wifi available |
+
+## Session 16 -- bidirectional note-task linking
+
+Branch: `supertask-ui-redesign` (continued from session 15)
+Plan: `.claude/plans/federated-fluttering-brooks.md`
+
+### What changed
+
+1. **linkType 4 with `supertask://` URI** -- tested on-device. linkType 5 doesn't exist (native returns error 506, valid range 0-4). linkType 4 with custom protocol works: dashed border appears, link stores the task ID. Native tap opens dead browser page (acceptable since real interaction is long-press gesture).
+
+2. **Replaced all marking with supertask:// link** -- T badge removed. `markAsTextLink` config toggle removed. Both workflows (mark handwriting on Done, convert to text) always apply `setLassoStrokeLink({destPath: 'supertask://task/{id}', style: 2, linkType: 4})`. No config gate.
+
+3. **Note context in Todoist description** -- `[SuperTask] Captured from: {file}.note p.{N}` appended to every lasso-captured task description. Human-readable in Todoist web/mobile. Machine-parseable by SuperTask via regex.
+
+4. **Task registry** -- `src/utils/taskRegistry.js`, RNFS-persisted at `/MyStyle/SuperTask/task-registry.json`. Written on task creation from both TaskAdd and QuickAdd. Supports lookup by page, note, or ID.
+
+5. **Page-aware discovery** -- TaskHome scans page elements via `getElements()` on mount, filters for `type === 600` with `supertask://task/` destPath. Cross-references with registry and Todoist API response. Three matching layers: link element IDs > description text > registry-only.
+
+6. **Device tab** -- New tab in TaskHome showing all registry tasks grouped by note file, with page numbers. Works independently of Todoist API.
+
+7. **TaskDetail back-reference** -- Parses `[SuperTask] Captured from` from description, shows dashed-border "Captured from" section with note name and page. Metadata preserved on save. `noteContext` stabilized via `useState` initializer so it doesn't flicker during editing.
+
+### Key findings
+
+- **linkType range is 0-4.** JS SDK `setLassoStrokeLink` has no range check, but native C/C++ layer rejects values > 4 with error 506. `modifyLassoLink` JS validation does check `linkType > 4`.
+- **`supertask://` protocol has no handler** -- native tap on linkType 4 link opens browser with dead URL. This is the known trade-off. Interactive linking will use long-press finger gesture (motion listener) instead of native link taps.
+- **Element scan returns link destPaths** -- `getElements()` reliably returns link elements with `link.destPath` field. Confirmed 2 and 3 supertask links found on page via scan.
+- **Registry persists across sessions** -- task created in one plugin open was found in registry on next open.
+
+### What's next (session 17)
+
+**Interactive bidirectional navigation:**
+- **Long-press gesture** -- register motion listener (headless, finger toolType 1). Detect long press (>1s, no movement). Read elements at (x,y), find supertask:// link, open TaskDetail. Key unknown: how to programmatically show plugin UI from headless context (`showPluginView()`).
+- **"View Note" button** -- in TaskDetail "Captured from" section, navigate to the source note page. If on same note, could close plugin and let user navigate. If different note, show the path.
+- **Offline data caching** -- registry should cache essential Todoist fields (priority, due, project) from last API response so SuperTask works without connectivity.
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 16 build with all linking changes (6.82MB, RNFS)
 
 ## Session 15 -- config persistence investigation
 
