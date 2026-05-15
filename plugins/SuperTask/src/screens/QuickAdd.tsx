@@ -76,7 +76,6 @@ export default function QuickAdd({nav}: {nav: Nav}) {
   const [marking, setMarking] = useState(false);
   const [markDone, setMarkDone] = useState<'none' | 'handwriting' | 'text'>('none');
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
-  const [markAsTextLink, setMarkAsTextLink] = useState(false);
 
   useEffect(() => {
     log('QuickAdd', 'MOUNT');
@@ -84,7 +83,6 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     loadConfig().then(config => {
       if (config.defaultProjectId) setProjectId(config.defaultProjectId);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
-      if (config.markAsTextLink !== undefined) setMarkAsTextLink(config.markAsTextLink);
     });
     runCapture();
   }, []);
@@ -230,9 +228,18 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     setStatusText('Adding to Todoist...');
 
     try {
+      // Build description with note context back-reference
+      let fullDescription = description.trim();
+      const nc = noteContextRef.current;
+      if (nc) {
+        const noteFile = nc.filePath.split('/').pop() || '';
+        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteFile} p.${nc.pageNum}`;
+        fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
+      }
+
       const task = await createTask({
         content: content.trim(),
-        description: description.trim() || undefined,
+        description: fullDescription || undefined,
         projectId: projectId || undefined,
         priority,
       });
@@ -304,54 +311,33 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         textFrameWidthType: 1,
       });
 
-      // Step 4: Insert T badge relative to the text we just inserted
-      // Gap of 20px keeps badge outside the 10px lasso padding on re-lasso
-      const badgeW = 26, badgeH = 26;
-      const badgeLeft = Math.max(0, textRect.left - badgeW - 20);
-      const badgeTop = textRect.top;
-      log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop}`);
-      await PluginNoteAPI.insertText({
-        textContentFull: 'T',
-        textRect: {left: badgeLeft, top: badgeTop, right: badgeLeft + badgeW, bottom: badgeTop + badgeH},
-        fontSize: 18,
-        textBold: 1,
-        textAlign: 1,
-        textFrameStyle: 3,
-        textEditable: 0,
-        textItalics: 0,
-        textFrameWidthType: 0,
-      });
-
-      // Step 5: Save
+      // Step 4: Save after text insertion
       await PluginNoteAPI.saveCurrentNote();
       log('QuickAdd', 'saveCurrentNote after convert');
 
-      // Step 6: Config ON -- lasso text to apply link, then re-lasso for repositioning
-      // Config OFF -- just lasso for repositioning
+      // Step 5: Lasso text to apply supertask link, then re-lasso for repositioning
       try {
-        if (markAsTextLink) {
-          // First lasso: apply the Todoist link (this may dismiss the lasso)
-          const lr = lassoRect(textRect);
-          log('QuickAdd', `Lasso for link: ${JSON.stringify(lr)}`);
-          const linkLasso = await (PluginCommAPI as any).lassoElements(lr);
-          if (linkLasso?.success) {
-            const task = createdTaskRef.current;
-            const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
-            await PluginNoteAPI.setLassoStrokeLink({
-              destPath: taskUrl,
-              destPage: 0,
-              style: 2,
-              linkType: 4,
-            });
-            log('QuickAdd', 'Applied Todoist link to converted text');
-            await PluginNoteAPI.saveCurrentNote();
-          }
+        const lr = lassoRect(textRect);
+        log('QuickAdd', `Lasso for link: ${JSON.stringify(lr)}`);
+        const linkLasso = await (PluginCommAPI as any).lassoElements(lr);
+        if (linkLasso?.success) {
+          const task = createdTaskRef.current;
+          const destPath = `supertask://task/${task?.id}`;
+          log('QuickAdd', `setLassoStrokeLink: destPath=${destPath}`);
+          const linkResult = await PluginNoteAPI.setLassoStrokeLink({
+            destPath,
+            destPage: 0,
+            style: 2,
+            linkType: 4,
+          });
+          log('QuickAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
+          await PluginNoteAPI.saveCurrentNote();
         }
 
         // Final lasso: select the text for repositioning (persists after plugin closes)
-        const lr = lassoRect(textRect);
-        log('QuickAdd', `Re-lasso text: ${JSON.stringify(lr)}`);
-        const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
+        const lr2 = lassoRect(textRect);
+        log('QuickAdd', `Re-lasso text: ${JSON.stringify(lr2)}`);
+        const reLassoResult = await (PluginCommAPI as any).lassoElements(lr2);
         log('QuickAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
       } catch (e: any) {
         log('QuickAdd', `Re-lasso text failed: ${e.message}`);
@@ -380,45 +366,21 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       return;
     }
 
-    // Apply auto-mark on the still-active original lasso.
+    // Mark handwriting: dashed border with supertask link on the still-active lasso
     const {bounds} = noteContextRef.current;
     const task = createdTaskRef.current;
     try {
-      // Config ON: dashed border + Todoist link on the active lasso
-      if (markAsTextLink) {
-        const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
-        log('QuickAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
-        await PluginNoteAPI.setLassoStrokeLink({
-          destPath: taskUrl,
-          destPage: 0,
-          style: 2,
-          linkType: 4,
-        });
-      }
-
-      // Insert T badge just left of the lasso rect
-      const badgeW = 26, badgeH = 26;
-      const badgeLeft = Math.max(0, bounds.left - badgeW - 20);
-      const badgeTop = bounds.top;
-      log('QuickAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop}`);
-      await PluginNoteAPI.insertText({
-        textContentFull: 'T',
-        textRect: {
-          left: badgeLeft,
-          top: badgeTop,
-          right: badgeLeft + badgeW,
-          bottom: badgeTop + badgeH,
-        },
-        fontSize: 18,
-        textBold: 1,
-        textAlign: 1,
-        textFrameStyle: 3,
-        textEditable: 0,
-        textItalics: 0,
-        textFrameWidthType: 0,
+      const destPath = `supertask://task/${task?.id}`;
+      log('QuickAdd', `setLassoStrokeLink: destPath=${destPath}`);
+      const markResult = await PluginNoteAPI.setLassoStrokeLink({
+        destPath,
+        destPage: 0,
+        style: 2,
+        linkType: 4,
       });
+      log('QuickAdd', `setLassoStrokeLink result: ${JSON.stringify(markResult)}`);
       await PluginNoteAPI.saveCurrentNote();
-      log('QuickAdd', `Auto-mark applied on Done (link=${markAsTextLink})`);
+      log('QuickAdd', 'Auto-mark applied');
 
       // Re-lasso the handwriting so user can reposition after plugin closes
       try {

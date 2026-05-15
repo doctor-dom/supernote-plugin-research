@@ -68,7 +68,6 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
   const [marking, setMarking] = useState(false);
   const [markDone, setMarkDone] = useState<'none' | 'handwriting' | 'text'>('none');
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
-  const [markAsTextLink, setMarkAsTextLink] = useState(false);
 
   useEffect(() => {
     log('TaskAdd', `MOUNT projects=${projects?.length} defaultProjectId=${defaultProjectId} captureMode=${captureMode || 'manual'} initialContent="${(initialContent || '').slice(0, 40)}"`);
@@ -76,7 +75,6 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     loadConfig().then(config => {
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
-      if (config.markAsTextLink !== undefined) setMarkAsTextLink(config.markAsTextLink);
       if (config.debugMode) setDebugMode(true);
     });
   }, []);
@@ -92,9 +90,17 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     setStatus('Adding to Todoist...');
 
     try {
+      // Build description with note context back-reference
+      let fullDescription = description.trim();
+      if (captureMode === 'lasso' && noteContext) {
+        const noteFile = noteContext.filePath.split('/').pop() || '';
+        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteFile} p.${noteContext.pageNum}`;
+        fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
+      }
+
       const task = await createTask({
         content: content.trim(),
-        description: description.trim() || undefined,
+        description: fullDescription || undefined,
         projectId: projectId || undefined,
         priority,
         dueString: dueString.trim() || undefined,
@@ -102,52 +108,22 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
       setCreatedTask(task);
 
-      // Auto-mark the handwriting on the STILL-ACTIVE original lasso.
-      // Config ON: dashed border + Todoist link + T badge.
-      // Config OFF: T badge only (no dashed border, no link).
+      // Auto-mark: dashed border with task ID encoded in link destPath.
       if (captureMode === 'lasso' && noteContext) {
-        const {filePath, pageNum, bounds} = noteContext;
         try {
-          setStatus('Marking handwriting...');
-
-          // Config ON: dashed border + Todoist link on the active lasso
-          if (markAsTextLink) {
-            const taskUrl = task?.url || `https://app.todoist.com/app/task/${task?.id || ''}`;
-            log('TaskAdd', `setLassoStrokeLink: destPath=${taskUrl.slice(0, 40)}`);
-            await PluginNoteAPI.setLassoStrokeLink({
-              destPath: taskUrl,
-              destPage: 0,
-              style: 2,
-              linkType: 4,
-            });
-          }
-
-          // Always insert T badge at top-left of handwriting bounds
-          const badgeW = 26;
-          const badgeH = 26;
-          const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
-          const badgeTop = bounds.top;
-          log('TaskAdd', `Inserting T badge: left=${badgeLeft} top=${badgeTop} w=${badgeW} h=${badgeH}`);
-          await PluginNoteAPI.insertText({
-            textContentFull: 'T',
-            textRect: {
-              left: badgeLeft,
-              top: badgeTop,
-              right: badgeLeft + badgeW,
-              bottom: badgeTop + badgeH,
-            },
-            fontSize: 18,
-            textBold: 1,
-            textAlign: 1,
-            textFrameStyle: 3,
-            textEditable: 0,
-            textItalics: 0,
-            textFrameWidthType: 0,
+          setStatus('Marking task...');
+          const destPath = `supertask://task/${task?.id}`;
+          log('TaskAdd', `setLassoStrokeLink: destPath=${destPath}`);
+          const markResult = await PluginNoteAPI.setLassoStrokeLink({
+            destPath,
+            destPage: 0,
+            style: 2,
+            linkType: 4,
           });
+          log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(markResult)}`);
           await PluginNoteAPI.saveCurrentNote();
-
           setMarkDone('handwriting');
-          log('TaskAdd', `Auto-mark applied (link=${markAsTextLink})`);
+          log('TaskAdd', 'Auto-mark applied');
         } catch (err: any) {
           log('TaskAdd', `Auto-mark failed (non-fatal): ${err.message}`);
         }
@@ -270,47 +246,29 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         textFrameWidthType: 1,
       });
 
-      // Step 5: Re-insert T badge
-      const badgeW = 26, badgeH = 26;
-      const badgeLeft = Math.max(0, bounds.left - badgeW - 16);
-      const badgeTop = bounds.top;
-      log('TaskAdd', `Re-inserting T badge: left=${badgeLeft} top=${badgeTop}`);
-      await PluginNoteAPI.insertText({
-        textContentFull: 'T',
-        textRect: {left: badgeLeft, top: badgeTop, right: badgeLeft + badgeW, bottom: badgeTop + badgeH},
-        fontSize: 18,
-        textBold: 1,
-        textAlign: 1,
-        textFrameStyle: 3,
-        textEditable: 1,
-        textItalics: 0,
-        textFrameWidthType: 0,
-      });
-
-      // Step 6: Save
+      // Step 5: Save after text insertion
       await PluginNoteAPI.saveCurrentNote();
       log('TaskAdd', 'saveCurrentNote after convert');
 
-      // Step 5: Re-lasso the inserted text so user can reposition it
+      // Step 6: Re-lasso the inserted text and apply supertask:// link
       try {
         const lr = makeLassoRect(textRect);
         log('TaskAdd', `Re-lasso text: ${JSON.stringify(lr)}`);
         const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
         log('TaskAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
 
-        // Config ON: apply dashed border + Todoist link to the text
-        if (markAsTextLink && reLassoResult?.success) {
-          const taskUrl = createdTask?.url || `https://app.todoist.com/app/task/${createdTask?.id || ''}`;
+        if (reLassoResult?.success) {
+          const destPath = `supertask://task/${createdTask?.id}`;
           await PluginNoteAPI.setLassoStrokeLink({
-            destPath: taskUrl,
+            destPath,
             destPage: 0,
             style: 2,
             linkType: 4,
           });
-          log('TaskAdd', 'Applied Todoist link to converted text');
+          log('TaskAdd', `Applied supertask link to converted text: ${destPath}`);
         }
       } catch (e: any) {
-        log('TaskAdd', `Re-lasso failed: ${e.message}`);
+        log('TaskAdd', `Re-lasso/link failed: ${e.message}`);
       }
 
       setMarkDone('text');

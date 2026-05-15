@@ -49,7 +49,6 @@ export default function Config({onNavigate, nav}: Props) {
   const [defaultScreen, setDefaultScreen] = useState('task-home');
   const [debugMode, setDebugMode] = useState(false);
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
-  const [markAsTextLink, setMarkAsTextLink] = useState(false);
   const [showTokenInfo, setShowTokenInfo] = useState(false);
 
   useEffect(() => {
@@ -67,7 +66,6 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
-      if (config.markAsTextLink !== undefined) setMarkAsTextLink(config.markAsTextLink);
 
       setConfigSource(getConfigSource());
 
@@ -139,7 +137,6 @@ export default function Config({onNavigate, nav}: Props) {
       defaultScreen,
       debugMode,
       markAsTextFontSize,
-      markAsTextLink,
     });
     setSaving(false);
     setSaveStatus(saved ? 'Saved to device' : 'Saved (session only)');
@@ -319,13 +316,6 @@ export default function Config({onNavigate, nav}: Props) {
           </Pressable>
         ))}
       </View>
-
-      <Text style={s.sectionTitle}>Link to Todoist task</Text>
-      <Text style={s.hint}>Adds dashed border + tappable link to task.</Text>
-      <Pressable style={s.radioRow} onPress={() => setMarkAsTextLink(!markAsTextLink)}>
-        <Text style={s.checkbox}>{markAsTextLink ? '[X]' : '[  ]'}</Text>
-        <Text style={s.radioLabel}>Add Todoist link to replaced text</Text>
-      </Pressable>
 
       {/* ── Advanced ── */}
       <View style={s.separator} />

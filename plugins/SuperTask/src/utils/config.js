@@ -40,7 +40,6 @@ const DEFAULT_CONFIG = {
   defaultScreen: 'task-home',
   debugMode: false,
   markAsTextFontSize: 32,
-  markAsTextLink: false,
 };
 
 // Fields that get obfuscated on disk
