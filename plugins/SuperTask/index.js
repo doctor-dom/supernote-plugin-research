@@ -14,6 +14,7 @@ import {AppRegistry, Image} from 'react-native';
 import App from './App';
 import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
+import {initGestureDetector} from './src/utils/gestureDetector';
 
 AppRegistry.registerComponent(appName, () => App);
 
@@ -59,6 +60,9 @@ PluginManager.registerButtonListener({
     global.__superTaskButtonId = msg.id;
   },
 });
+
+// Initialize gesture detector for long-press -> open task deep linking
+initGestureDetector();
 
 // Config listener: try both callback names (SDK docs say onClick,
 // older code used onConfigButtonPress -- belt and suspenders)
