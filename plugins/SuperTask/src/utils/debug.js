@@ -4,10 +4,10 @@
  * so this is how we see what's happening.
  *
  * Export POSTs logs to a local dev server (node dev-server.js).
- * Falls back to inserting text on the current note page.
+ * Falls back to writing a log file to MyStyle/SuperTask/logs/ via RNFS.
  */
 
-import {PluginNoteAPI} from 'sn-plugin-lib';
+import RNFS from 'react-native-fs';
 
 // Load debug server URL from bundled config
 let _debugServerUrl = '';
@@ -86,20 +86,17 @@ export async function exportLog() {
     }
   }
 
-  // Method 2: Insert as text on the current note page
+  // Method 2: Write to log file on device (retrievable via USB)
   try {
-    await PluginNoteAPI.insertText({
-      textContentFull: logText,
-      textRect: {left: 100, top: 100, right: 1400, bottom: 2000},
-      fontSize: 14,
-      textEditable: 1,
-      textFrameStyle: 3,
-      textAlign: 0,
-      textBold: 0,
-      textItalics: 0,
-      textFrameWidthType: 0,
-    });
-    return 'Log inserted on note page (dev server unavailable)';
+    const logDir = '/storage/emulated/0/MyStyle/SuperTask/logs';
+    const dirExists = await RNFS.exists(logDir);
+    if (!dirExists) {
+      await RNFS.mkdir(logDir);
+    }
+    const fileName = `supertask-${timestamp}.txt`;
+    const filePath = `${logDir}/${fileName}`;
+    await RNFS.writeFile(filePath, logText, 'utf8');
+    return `Log saved to MyStyle/SuperTask/logs/${fileName}`;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return `Export failed: ${msg}`;

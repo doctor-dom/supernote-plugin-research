@@ -5,13 +5,14 @@
  * Results shown on screen and sent to dev log server.
  */
 
-import React, {useState} from 'react';
+import React, {useState, useRef} from 'react';
 import {View, Text, Pressable, StyleSheet, ScrollView} from 'react-native';
 import {
   PluginCommAPI,
   PluginNoteAPI,
   PluginFileAPI,
   FileUtils,
+  PluginManager,
 } from 'sn-plugin-lib';
 import {log} from '../utils/debug';
 
@@ -24,6 +25,22 @@ type TestResult = {
   status: 'pending' | 'pass' | 'fail' | 'running';
   detail: string;
 };
+
+// Module-level motion state -- survives component remounts after closePluginView/showPluginView
+let _motionSub: any = null;
+let _motionLog: string[] = [];
+let _motionCount = 0;
+
+// Android MotionEvent: lower 8 bits = action, upper bits = pointer index
+const BASE_ACTIONS: Record<number, string> = {0: 'DOWN', 1: 'UP', 2: 'MOVE', 3: 'CANCEL', 5: 'PTR_DOWN', 6: 'PTR_UP'};
+const TOOL_NAMES: Record<number, string> = {0: '???', 1: 'FINGER', 2: 'PEN'};
+
+function decodeAction(raw: number): string {
+  const action = raw & 0xff;
+  const ptrIdx = (raw >> 8) & 0xff;
+  const name = BASE_ACTIONS[action] || String(action);
+  return ptrIdx > 0 ? `${name}[${ptrIdx}]` : name;
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -40,6 +57,66 @@ export default function Diagnostics({nav}: Props) {
   const [running, setRunning] = useState(false);
   // Store templates from test 1 for use in tests 2 and 4
   const templatesRef = React.useRef<any[]>([]);
+
+  // Motion listener UI state -- reads from module-level storage on mount
+  const [motionActive, setMotionActive] = useState(!!_motionSub);
+  const [motionEvents, setMotionEvents] = useState<string[]>([..._motionLog]);
+
+  const startMotionListener = () => {
+    // Clean up any existing listener
+    if (_motionSub) {
+      _motionSub.remove();
+      _motionSub = null;
+    }
+    _motionCount = 0;
+    _motionLog = [];
+    setMotionEvents([]);
+    setMotionActive(true);
+    log('Diag', 'Motion listener starting...');
+
+    _motionSub = PluginManager.registerMotionListener(1, {
+      onMsg: (msg: any) => {
+        _motionCount++;
+        const action = decodeAction(msg.action);
+        const tool = TOOL_NAMES[msg.toolType] || String(msg.toolType);
+        const x = Math.round(msg.x);
+        const y = Math.round(msg.y);
+        const p = msg.pressure?.toFixed(2) ?? '?';
+        const ptrCount = msg.pointerCount ?? msg.pointers?.length ?? '?';
+
+        const line = `#${_motionCount} ${action} ${tool} (${x},${y}) p=${p} ptrs=${ptrCount}`;
+
+        // Log every DOWN/UP, but only every 10th MOVE
+        if (msg.action !== 2 || _motionCount % 10 === 0) {
+          log('Diag', `Motion: ${line}`);
+        }
+
+        // Store in module-level log (survives remount)
+        _motionLog = [line, ..._motionLog].slice(0, 200);
+
+        // Update UI if component is mounted
+        setMotionEvents([..._motionLog]);
+      },
+    });
+    log('Diag', 'Motion listener registered');
+  };
+
+  const startAndClose = () => {
+    startMotionListener();
+    log('Diag', 'Closing plugin view -- draw/tap on note, then reopen plugin');
+    setTimeout(() => {
+      PluginManager.closePluginView();
+    }, 500);
+  };
+
+  const stopMotionListener = () => {
+    if (_motionSub) {
+      _motionSub.remove();
+      _motionSub = null;
+    }
+    setMotionActive(false);
+    log('Diag', `Motion listener stopped. Total events: ${_motionCount}`);
+  };
 
   const update = (name: string, status: TestResult['status'], detail: string) => {
     log('Diag', `${name}: ${status} -- ${detail}`);
@@ -355,13 +432,47 @@ export default function Diagnostics({nav}: Props) {
             ) : null}
           </View>
         ))}
-        {results.length === 0 && !running && (
+        {results.length === 0 && !running && !motionActive && motionEvents.length === 0 && (
           <Text style={styles.hint}>
             Tap "Run All Tests" to probe SDK APIs for dashboard.{'\n'}
             Open a note first so file-context tests can run.
           </Text>
         )}
       </ScrollView>
+
+      {/* Motion Listener Test */}
+      <View style={styles.motionSection}>
+        <View style={styles.motionHeader}>
+          <Text style={styles.motionTitle}>Motion Listener</Text>
+          <View style={{flexDirection: 'row', gap: 8}}>
+            {!motionActive && (
+              <Pressable style={styles.motionBtn} onPress={startAndClose}>
+                <Text style={styles.motionBtnText}>Start & Close</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={[styles.motionBtn, motionActive && styles.motionBtnActive]}
+              onPress={motionActive ? stopMotionListener : startMotionListener}>
+              <Text style={[styles.motionBtnText, motionActive && styles.motionBtnTextActive]}>
+                {motionActive ? 'Stop' : 'Start'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+        {motionEvents.length > 0 && (
+          <ScrollView style={styles.motionLog} nestedScrollEnabled>
+            {motionEvents.map((line, i) => (
+              <Text key={i} style={styles.motionLine}>{line}</Text>
+            ))}
+          </ScrollView>
+        )}
+        {motionActive && motionEvents.length === 0 && (
+          <Text style={styles.motionHint}>Listening... touch the screen with pen or finger</Text>
+        )}
+        {!motionActive && _motionCount > 0 && motionEvents.length > 0 && (
+          <Text style={styles.motionHint}>Captured {_motionCount} events (showing last 200)</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -450,5 +561,56 @@ const styles = StyleSheet.create({
     color: '#666666',
     lineHeight: 20,
     padding: 16,
+  },
+
+  // Motion listener
+  motionSection: {
+    borderTopWidth: 2,
+    borderTopColor: '#000000',
+    padding: 12,
+    maxHeight: 240,
+  },
+  motionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  motionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  motionBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+  },
+  motionBtnActive: {
+    backgroundColor: '#000000',
+  },
+  motionBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  motionBtnTextActive: {
+    color: '#ffffff',
+  },
+  motionLog: {
+    flex: 1,
+  },
+  motionLine: {
+    fontSize: 11,
+    fontFamily: 'monospace',
+    color: '#000000',
+    lineHeight: 16,
+  },
+  motionHint: {
+    fontSize: 13,
+    color: '#666666',
+    fontStyle: 'italic',
   },
 });
