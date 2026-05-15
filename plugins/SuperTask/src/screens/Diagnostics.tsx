@@ -6,13 +6,14 @@
  */
 
 import React, {useState, useRef} from 'react';
-import {View, Text, Pressable, StyleSheet, ScrollView} from 'react-native';
+import {View, Text, Pressable, StyleSheet, ScrollView, Linking} from 'react-native';
 import {
   PluginCommAPI,
   PluginNoteAPI,
   PluginFileAPI,
   FileUtils,
   PluginManager,
+  NativeUIUtils,
 } from 'sn-plugin-lib';
 import {log} from '../utils/debug';
 
@@ -57,6 +58,10 @@ export default function Diagnostics({nav}: Props) {
   const [running, setRunning] = useState(false);
   // Store templates from test 1 for use in tests 2 and 4
   const templatesRef = React.useRef<any[]>([]);
+
+  // Navigation test state
+  const [navResult, setNavResult] = useState('');
+  const [navNotePath, setNavNotePath] = useState('');
 
   // Motion listener UI state -- reads from module-level storage on mount
   const [motionActive, setMotionActive] = useState(!!_motionSub);
@@ -364,6 +369,122 @@ export default function Diagnostics({nav}: Props) {
     }
   };
 
+  // --- Navigation tests (run individually, may leave the plugin) ---
+
+  const getNotePath = async (): Promise<string> => {
+    if (navNotePath) return navNotePath;
+    try {
+      const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 5000, 'getCurrentFilePath');
+      const path = fp?.result || '';
+      if (path) {
+        setNavNotePath(path);
+        return path;
+      }
+    } catch {}
+    return '';
+  };
+
+  const testNavOpenFilePath = async () => {
+    const path = await getNotePath();
+    if (!path) {
+      setNavResult('openFilePath: No note path available');
+      return;
+    }
+    setNavResult(`openFilePath: trying ${path}...`);
+    log('NavTest', `openFilePath(${path})`);
+    try {
+      const result = await withTimeout(FileUtils.openFilePath(path), 8000, 'openFilePath');
+      const msg = `openFilePath: result=${result} path=${path}`;
+      log('NavTest', msg);
+      setNavResult(msg);
+    } catch (e: any) {
+      const msg = `openFilePath: ERROR ${e.message}`;
+      log('NavTest', msg);
+      setNavResult(msg);
+    }
+  };
+
+  const testNavLinkingOpenURL = async () => {
+    const path = await getNotePath();
+    if (!path) {
+      setNavResult('Linking.openURL: No note path available');
+      return;
+    }
+    const url = `file://${path}`;
+    setNavResult(`Linking.openURL: trying ${url}...`);
+    log('NavTest', `Linking.openURL(${url})`);
+    try {
+      await Linking.openURL(url);
+      const msg = `Linking.openURL: called successfully (check if note opened)`;
+      log('NavTest', msg);
+      setNavResult(msg);
+    } catch (e: any) {
+      const msg = `Linking.openURL: ERROR ${e.message}`;
+      log('NavTest', msg);
+      setNavResult(msg);
+    }
+  };
+
+  const testNavRattaDialog = async () => {
+    setNavResult('showRattaDialog: showing...');
+    log('NavTest', 'showRattaDialog test');
+    try {
+      const result = await withTimeout(
+        NativeUIUtils.showRattaDialog(
+          'Navigate to MyNotes/Meeting.note page 3',
+          'Cancel',
+          'Go',
+          true,
+        ),
+        15000,
+        'showRattaDialog',
+      );
+      const msg = `showRattaDialog: result=${result} (true=right button, false=left)`;
+      log('NavTest', msg);
+      setNavResult(msg);
+    } catch (e: any) {
+      const msg = `showRattaDialog: ERROR ${e.message}`;
+      log('NavTest', msg);
+      setNavResult(msg);
+    }
+  };
+
+  const testNavElementBounds = async () => {
+    const path = await getNotePath();
+    if (!path) {
+      setNavResult('Element bounds: No note path available');
+      return;
+    }
+    setNavResult('Element bounds: scanning...');
+    log('NavTest', `Scanning elements for link bounds on ${path}`);
+    try {
+      const pn = await withTimeout(PluginCommAPI.getCurrentPageNum(), 5000, 'getCurrentPageNum');
+      const pageNum = pn?.result ?? 0;
+      const elemResult = await withTimeout(PluginFileAPI.getElements(pageNum, path), 8000, 'getElements');
+      if (!elemResult?.success) {
+        setNavResult(`Element bounds: getElements failed: ${JSON.stringify(elemResult)}`);
+        return;
+      }
+      const elements = elemResult.result || [];
+      const links = elements.filter((el: any) => el.type === 600);
+      const stLinks = links.filter((el: any) => el.link?.destPath?.startsWith('supertask://'));
+      const details = links.map((el: any) => {
+        const l = el.link || {};
+        return `cat=${l.category} X=${l.X} Y=${l.Y} w=${l.width} h=${l.height} dest=${(l.destPath || '').slice(0, 40)} ctrl=[${(l.controlTrailNums || []).join(',')}]`;
+      });
+      const msg = `${links.length} links (${stLinks.length} supertask):\n${details.join('\n') || '(none)'}`;
+      log('NavTest', msg);
+      setNavResult(`Element bounds:\n${msg}`);
+
+      // Recycle
+      elements.forEach((el: any) => { if (el.recycle) el.recycle(); });
+    } catch (e: any) {
+      const msg = `Element bounds: ERROR ${e.message}`;
+      log('NavTest', msg);
+      setNavResult(msg);
+    }
+  };
+
   const testReplaceElements = async (currentPath: string, page: number) => {
     const name = 'replaceElements';
     update(name, 'running', '');
@@ -439,6 +560,30 @@ export default function Diagnostics({nav}: Props) {
           </Text>
         )}
       </ScrollView>
+
+      {/* Navigation Tests */}
+      <View style={styles.navSection}>
+        <Text style={styles.navTitle}>Navigation Tests</Text>
+        <View style={styles.navButtons}>
+          <Pressable style={styles.navBtn} onPress={testNavOpenFilePath}>
+            <Text style={styles.navBtnText}>openFilePath</Text>
+          </Pressable>
+          <Pressable style={styles.navBtn} onPress={testNavLinkingOpenURL}>
+            <Text style={styles.navBtnText}>Linking.openURL</Text>
+          </Pressable>
+          <Pressable style={styles.navBtn} onPress={testNavRattaDialog}>
+            <Text style={styles.navBtnText}>RattaDialog</Text>
+          </Pressable>
+          <Pressable style={styles.navBtn} onPress={testNavElementBounds}>
+            <Text style={styles.navBtnText}>Link Bounds</Text>
+          </Pressable>
+        </View>
+        {navResult ? (
+          <Text style={styles.navResult}>{navResult}</Text>
+        ) : (
+          <Text style={styles.navHint}>Test APIs for opening notes. Open a note with supertask links first.</Text>
+        )}
+      </View>
 
       {/* Motion Listener Test */}
       <View style={styles.motionSection}>
@@ -561,6 +706,49 @@ const styles = StyleSheet.create({
     color: '#666666',
     lineHeight: 20,
     padding: 16,
+  },
+
+  // Navigation tests
+  navSection: {
+    borderTopWidth: 2,
+    borderTopColor: '#000000',
+    padding: 12,
+    maxHeight: 200,
+  },
+  navTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+    marginBottom: 8,
+  },
+  navButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  navBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+  },
+  navBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  navResult: {
+    fontSize: 11,
+    fontFamily: 'monospace',
+    color: '#000000',
+    lineHeight: 16,
+  },
+  navHint: {
+    fontSize: 13,
+    color: '#666666',
+    fontStyle: 'italic',
   },
 
   // Motion listener
