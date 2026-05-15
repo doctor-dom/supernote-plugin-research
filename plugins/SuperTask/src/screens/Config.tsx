@@ -4,8 +4,8 @@
  * Two tabs: Connections (API token, config source) and Preferences
  * (all settings use horizontal controls for space efficiency).
  *
- * Config persistence: saves to a hidden .note file in MyStyle/SuperTask/.
- * Also reads from MyStyle/SuperTask/supertask-config.json if present (user-provided via USB).
+ * Config persistence: reads/writes supertask-config.json via RNFS.
+ * User can also seed this file via USB.
  */
 
 import React, {useState, useEffect} from 'react';
@@ -149,8 +149,7 @@ export default function Config({onNavigate, nav}: Props) {
 
   const sourceLabel = (s: string) => {
     switch (s) {
-      case 'mystyle': return 'MyStyle JSON';
-      case 'storage': return 'Device storage';
+      case 'file': return 'Device file';
       case 'bundled': return 'Build config';
       default: return 'Not saved';
     }
@@ -192,10 +191,8 @@ export default function Config({onNavigate, nav}: Props) {
           <Text style={s.sourceChipText}>{sourceLabel(configSource)}</Text>
         </View>
         <Text style={s.hint}>
-          {configSource === 'mystyle'
-            ? 'Reading from MyStyle/SuperTask/supertask-config.json'
-            : configSource === 'storage'
-            ? 'Saved to device (MyStyle/SuperTask/)'
+          {configSource === 'file'
+            ? 'MyStyle/SuperTask/supertask-config.json'
             : configSource === 'bundled'
             ? 'Using build-time config.local.js'
             : 'No persistent config found'}

@@ -2,15 +2,20 @@
  * Config management with persistent storage
  *
  * Load priority:
- *   1. MyStyle JSON -- file:///storage/emulated/0/MyStyle/SuperTask/supertask-config.json
- *   2. Storage note -- hidden .note file with config serialized as a text element
- *   3. Bundled config.local.js -- build-time injection (dev only)
- *   4. Defaults
+ *   1. RNFS JSON file -- /storage/emulated/0/MyStyle/SuperTask/supertask-config.json
+ *   2. Bundled config.local.js -- build-time injection (dev only)
+ *   3. Defaults
  *
- * Save writes to the storage note. MyStyle JSON is read-only (user edits via USB).
+ * Save writes to the RNFS JSON file. User can seed it via USB with plain text
+ * values; sensitive fields (apiToken, debugServerUrl) are encrypted on next Save.
+ *
+ * Encryption: AES-256 via crypto-js. Encrypted values start with "U2FsdGVkX1"
+ * (CryptoJS signature). Plain text values are accepted on load and encrypted
+ * on next save, so USB-seeded configs work seamlessly.
  */
 
-import {PluginFileAPI, FileUtils} from 'sn-plugin-lib';
+import RNFS from 'react-native-fs';
+import CryptoJS from 'crypto-js';
 import {log} from './debug';
 
 // Bundled config (build-time, gitignored)
@@ -36,176 +41,135 @@ const DEFAULT_CONFIG = {
   markAsTextLink: false,
 };
 
-const MYSTYLE_CONFIG_PATH = 'file:///storage/emulated/0/MyStyle/SuperTask/supertask-config.json';
-const STORAGE_DIR = '/MyStyle/SuperTask';
-const STORAGE_NOTE = '/MyStyle/SuperTask/supertask-storage.note';
-const STORAGE_PREFIX = 'SUPERTASK_CONFIG:';
+// Fields that get encrypted on disk
+const SENSITIVE_KEYS = ['apiToken', 'debugServerUrl'];
 
-// In-memory cache
+const CONFIG_DIR = '/storage/emulated/0/MyStyle/SuperTask';
+const CONFIG_FILE = CONFIG_DIR + '/supertask-config.json';
+
+// Encryption key -- embedded in Hermes bytecode, not trivially readable
+const ENC_KEY = 'sntask_v1_8f3a2c9d7e1b';
+
+// In-memory cache (always holds decrypted values)
 let _runtimeConfig = null;
-let _configSource = 'defaults'; // 'mystyle' | 'storage' | 'bundled' | 'defaults'
+let _configSource = 'defaults'; // 'file' | 'bundled' | 'defaults'
 
 /**
- * Read config from MyStyle JSON file (user-provided via USB)
+ * Check if a string is a CryptoJS encrypted value
  */
-async function loadFromMyStyle() {
+function isEncrypted(value) {
+  return typeof value === 'string' && value.startsWith('U2FsdGVkX1');
+}
+
+/**
+ * Encrypt a string value
+ */
+function encrypt(value) {
+  if (!value) return value;
+  return CryptoJS.AES.encrypt(value, ENC_KEY).toString();
+}
+
+/**
+ * Decrypt a string value. Returns original if not encrypted or decryption fails.
+ */
+function decrypt(value) {
+  if (!value || !isEncrypted(value)) return value;
   try {
-    log('Config', `Trying MyStyle JSON: ${MYSTYLE_CONFIG_PATH}`);
-    const response = await fetch(MYSTYLE_CONFIG_PATH);
-    log('Config', `MyStyle fetch status: ${response.status} ok: ${response.ok}`);
-    const data = await response.json();
+    const bytes = CryptoJS.AES.decrypt(value, ENC_KEY);
+    const result = bytes.toString(CryptoJS.enc.Utf8);
+    return result || value; // fallback to original if empty result
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Decrypt sensitive fields in a config object (for loading)
+ */
+function decryptConfig(config) {
+  const result = {...config};
+  for (const key of SENSITIVE_KEYS) {
+    if (result[key]) {
+      result[key] = decrypt(result[key]);
+    }
+  }
+  return result;
+}
+
+/**
+ * Encrypt sensitive fields in a config object (for saving)
+ */
+function encryptConfig(config) {
+  const result = {...config};
+  for (const key of SENSITIVE_KEYS) {
+    if (result[key] && !isEncrypted(result[key])) {
+      result[key] = encrypt(result[key]);
+    }
+  }
+  return result;
+}
+
+/**
+ * Read config from JSON file on device
+ */
+async function loadFromFile() {
+  try {
+    const exists = await RNFS.exists(CONFIG_FILE);
+    if (!exists) {
+      log('Config', 'Config file not found');
+      return null;
+    }
+    const json = await RNFS.readFile(CONFIG_FILE, 'utf8');
+    const data = JSON.parse(json);
     if (data && typeof data === 'object') {
-      log('Config', `Loaded from MyStyle JSON (${Object.keys(data).length} keys)`);
-      return data;
+      const decrypted = decryptConfig(data);
+      const hadEncrypted = SENSITIVE_KEYS.some(k => data[k] && isEncrypted(data[k]));
+      log('Config', `Loaded from file (${Object.keys(data).length} keys, encrypted=${hadEncrypted})`);
+      return decrypted;
     }
   } catch (e) {
-    log('Config', `MyStyle JSON not found or invalid: ${e.message}`);
+    log('Config', `File read failed: ${e.message}`);
   }
   return null;
 }
 
 /**
- * Read config from hidden storage note
+ * Write config to JSON file on device (encrypts sensitive fields)
  */
-async function loadFromStorage() {
+async function saveToFile(config) {
   try {
-    const exists = await FileUtils.exists(STORAGE_NOTE);
-    if (!exists) return null;
-
-    const pageCount = await PluginFileAPI.getNoteTotalPageNum(STORAGE_NOTE);
-    if (!pageCount?.success || !pageCount.result || pageCount.result < 1) return null;
-
-    const elements = await PluginFileAPI.getElements(0, STORAGE_NOTE);
-    if (!elements?.success || !elements.result) return null;
-
-    for (const el of elements.result) {
-      const text = el.textBox?.textContentFull || '';
-      if (text.startsWith(STORAGE_PREFIX)) {
-        const json = text.slice(STORAGE_PREFIX.length);
-        const data = JSON.parse(json);
-        log('Config', `Loaded from storage note (${Object.keys(data).length} keys)`);
-        return data;
-      }
+    const dirExists = await RNFS.exists(CONFIG_DIR);
+    if (!dirExists) {
+      await RNFS.mkdir(CONFIG_DIR);
+      log('Config', 'Created config directory');
     }
+
+    const encrypted = encryptConfig(config);
+    const json = JSON.stringify(encrypted, null, 2);
+    await RNFS.writeFile(CONFIG_FILE, json, 'utf8');
+    log('Config', `Saved to file (${json.length} chars, sensitive fields encrypted)`);
+    return true;
   } catch (e) {
-    log('Config', `Storage note read failed: ${e.message}`);
-  }
-  return null;
-}
-
-/**
- * Write config to hidden storage note
- */
-async function saveToStorage(config) {
-  try {
-    // Step 1: Ensure directory exists
-    try {
-      const dirExists = await FileUtils.exists(STORAGE_DIR);
-      log('Config', `Storage dir exists: ${dirExists}`);
-      if (!dirExists) {
-        const mkResult = await FileUtils.makeDir(STORAGE_DIR);
-        log('Config', `makeDir result: ${JSON.stringify(mkResult)}`);
-      }
-    } catch (e) {
-      log('Config', `Dir create failed: ${e.message}`);
-    }
-
-    // Step 2: Ensure storage note exists
-    let noteExists = false;
-    try {
-      const pageCount = await PluginFileAPI.getNoteTotalPageNum(STORAGE_NOTE);
-      log('Config', `Storage note pageCount: ${JSON.stringify(pageCount)}`);
-      noteExists = pageCount?.success && pageCount.result > 0;
-    } catch (e) {
-      log('Config', `Storage note check failed: ${e.message}`);
-    }
-
-    if (!noteExists) {
-      log('Config', `Creating storage note at: ${STORAGE_NOTE}`);
-      try {
-        const createResult = await PluginFileAPI.createNote({
-          notePath: STORAGE_NOTE,
-          template: 'none',
-          mode: 0,
-          isPortrait: true,
-        });
-        log('Config', `createNote result: ${JSON.stringify(createResult)}`);
-        if (!createResult?.success) {
-          log('Config', `createNote failed, cannot persist config`);
-          return false;
-        }
-      } catch (e) {
-        log('Config', `createNote error: ${e.message}`);
-        return false;
-      }
-    }
-
-    // Step 3: Clear existing elements
-    try {
-      const clearResult = await PluginFileAPI.clearLayerElements(STORAGE_NOTE, 0, 0);
-      log('Config', `clearLayerElements result: ${JSON.stringify(clearResult)}`);
-    } catch (e) {
-      log('Config', `clearLayerElements failed (ok if empty): ${e.message}`);
-    }
-
-    // Step 4: Write config as text element
-    const dataStr = STORAGE_PREFIX + JSON.stringify(config);
-    log('Config', `Writing config (${dataStr.length} chars) to storage note`);
-    const insertResult = await PluginFileAPI.insertElements(STORAGE_NOTE, 0, [
-      {
-        type: 500,
-        layerNum: 0,
-        pageNum: 0,
-        textBox: {
-          textContentFull: dataStr,
-          textRect: {left: 0, top: 0, right: 100, bottom: 20},
-          fontSize: 8,
-          textBold: 0,
-          textItalics: 0,
-          textAlign: 0,
-          textEditable: 0,
-        },
-      },
-    ]);
-
-    if (insertResult?.success) {
-      log('Config', 'Config saved to storage note');
-      return true;
-    } else {
-      log('Config', `insertElements failed: ${JSON.stringify(insertResult)}`);
-      return false;
-    }
-  } catch (e) {
-    log('Config', `saveToStorage error: ${e.message}`);
+    log('Config', `File write failed: ${e.message}`);
     return false;
   }
 }
 
 /**
- * Load config with priority: MyStyle > storage note > bundled > defaults
+ * Load config with priority: file > bundled > defaults
  */
 export async function loadConfig() {
   if (_runtimeConfig) {
     return {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};
   }
 
-  // Try MyStyle JSON first
-  const myStyleConfig = await loadFromMyStyle();
-  if (myStyleConfig) {
-    _configSource = 'mystyle';
-    _runtimeConfig = myStyleConfig;
-    return {...DEFAULT_CONFIG, ...bundledConfig, ...myStyleConfig};
+  const fileConfig = await loadFromFile();
+  if (fileConfig) {
+    _configSource = 'file';
+    _runtimeConfig = fileConfig;
+    return {...DEFAULT_CONFIG, ...bundledConfig, ...fileConfig};
   }
 
-  // Try storage note
-  const storageConfig = await loadFromStorage();
-  if (storageConfig) {
-    _configSource = 'storage';
-    _runtimeConfig = storageConfig;
-    return {...DEFAULT_CONFIG, ...bundledConfig, ...storageConfig};
-  }
-
-  // Fall back to bundled config
   if (bundledConfig.apiToken) {
     _configSource = 'bundled';
   }
@@ -213,15 +177,15 @@ export async function loadConfig() {
 }
 
 /**
- * Save config to runtime memory + persistent storage note
+ * Save config to runtime memory + persistent file
  */
 export async function saveConfig(config) {
   _runtimeConfig = {..._runtimeConfig, ...config};
 
-  // Persist to storage note on device
-  const saved = await saveToStorage({...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig});
+  const merged = {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};
+  const saved = await saveToFile(merged);
   if (saved) {
-    _configSource = 'storage';
+    _configSource = 'file';
   }
   return saved;
 }
