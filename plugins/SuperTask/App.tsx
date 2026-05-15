@@ -24,6 +24,7 @@ import {log, logError, getEntries, setListener, exportLog, setDebugMode} from '.
 import {loadConfig} from './src/utils/config';
 import {getTask as getRegistryTask} from './src/utils/taskRegistry';
 import {setConfigLoader, getTasks, getProjects} from './src/api/todoist';
+import {initGestureDetector} from './src/utils/gestureDetector';
 
 type ScreenEntry = {
   name: string;
@@ -160,6 +161,9 @@ function App(): React.JSX.Element {
 
     const initial = global.__superTaskButtonId;
     log('App', `MOUNT -- initial buttonId=${JSON.stringify(initial)} screen=${screenStack[0].name}`);
+
+    // Register gesture detector after UI mounts (must be active when registered)
+    initGestureDetector();
 
     // Register listeners for subsequent button presses (e.g., switching
     // between tasks and config without closing the plugin view)

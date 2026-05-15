@@ -44,14 +44,14 @@ export function initGestureDetector() {
 
       const action = msg.action & 0xff;
 
-      if (action === 0) {
-        // FINGER DOWN
+      if (action === 0 || action === 5) {
+        // FINGER DOWN or PTR_DOWN
         onFingerDown(msg.x, msg.y);
       } else if (action === 2) {
         // FINGER MOVE
         onFingerMove(msg.x, msg.y);
-      } else if (action === 1) {
-        // FINGER UP
+      } else if (action === 1 || action === 6) {
+        // FINGER UP or PTR_UP
         onFingerUp(msg.x, msg.y);
       } else if (action === 3) {
         // CANCEL
