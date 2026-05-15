@@ -4,8 +4,7 @@
  * Two tabs: Connections (API token, config source) and Preferences
  * (all settings use horizontal controls for space efficiency).
  *
- * Config persistence: reads/writes supertask-config.json via RNFS.
- * User can also seed this file via USB.
+ * Config persistence: reads/writes config via .note file storage (no native modules).
  */
 
 import React, {useState, useEffect} from 'react';
@@ -341,9 +340,15 @@ export default function Config({onNavigate, nav}: Props) {
           <Pressable style={s.headerBtn} onPress={handleSave} disabled={saving}>
             <Text style={s.headerBtnText}>{saving ? 'Saving...' : 'Save'}</Text>
           </Pressable>
-          <Pressable style={s.headerBtn} onPress={() => PluginManager.closePluginView()}>
-            <Text style={s.headerBtnText}>Close</Text>
-          </Pressable>
+          {nav?.canGoBack ? (
+            <Pressable style={s.headerBtn} onPress={() => nav.pop()}>
+              <Text style={s.headerBtnText}>Back</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={s.headerBtn} onPress={() => PluginManager.closePluginView()}>
+              <Text style={s.headerBtnText}>Close</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 

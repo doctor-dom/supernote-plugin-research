@@ -69,9 +69,11 @@ Key SDK source files to check:
 ### File I/O (confirmed on-device)
 - **`FileUtils.writeFile()` does not exist** -- not in the TurboModule interface at all
 - **`fetch('file:///...')` WORKS for reading** -- returns HTTP status 0 (not 200), so `response.ok` is false. Must ignore status and call `response.json()` or `response.text()` directly. Reference: sn-keyworder plugin uses this for sideloaded JSON config.
-- **Write workaround: .note file as storage** -- create a hidden `.note` file via `createNote({template: 'none'})`, stash JSON as a text element via `insertElements(type 500)`, read back via `getElements`. Full round-trip persistence without writeFile. Reference: sn-keyworder `src/storage.ts`.
+- **Write workaround: .note file as storage** -- create a `.note` file via `createNote` with a system template (from `getNoteSystemTemplates`, use `Template.name`), stash JSON as a text element via `insertElements(type 500)`, read back via `getElements`. Full round-trip persistence without writeFile. **`template: 'none'` does NOT work** -- returns error 802.
 - **`FileUtils.exists()` + `makeDir()`** -- can check and create directories (e.g., `/MyStyle/SuperTask/`)
-- **`PluginFileAPI.createNote()` fails with error 802** when system template path doesn't resolve to a file on device. Use `template: 'none'` for storage notes.
+- **`PluginFileAPI.createNote()` fails with error 802** when template path doesn't resolve to a file. Must use a real template: call `getNoteSystemTemplates()` and pass `Template.name`. `template: 'none'` is NOT valid.
+- **`PluginFileAPI` write APIs (createNote, insertElements, etc.)** require a note context -- they return error 102 when called from the config/settings screen (no active note). Access settings from within a note (toolbar button) to use these APIs.
+- **Ratta's official sticker demo** uses `@react-native-async-storage/async-storage` for persistent config storage (native module). There is no built-in pure-JS file write mechanism in the SDK.
 - **ADB is locked down** -- `adb devices` sees the Supernote, but `shell`, `logcat`, `push`, `pull` all return "error: not support command"
 
 ### Learnings from SmartGestures development

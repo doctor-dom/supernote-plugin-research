@@ -347,6 +347,9 @@ export default function TaskHome({nav}: Props) {
           <Pressable style={styles.headerButton} onPress={handleAddTask}>
             <Text style={styles.headerButtonText}>+</Text>
           </Pressable>
+          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'SETTINGS pressed'); nav.push('config'); }}>
+            <Text style={styles.headerButtonText}>Settings</Text>
+          </Pressable>
           {debugMode && (
             <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.resetTo('debug'); }}>
               <Text style={styles.headerButtonText}>Log</Text>

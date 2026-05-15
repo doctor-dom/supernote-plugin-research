@@ -1,21 +1,20 @@
 /**
- * Config management with persistent storage
+ * Config management with persistent storage via .note file
  *
  * Load priority:
- *   1. RNFS JSON file -- /storage/emulated/0/MyStyle/SuperTask/supertask-config.json
+ *   1. .note file -- /MyStyle/SuperTask/supertask-config.note
  *   2. Bundled config.local.js -- build-time injection (dev only)
  *   3. Defaults
  *
- * Save writes to the RNFS JSON file. User can seed it via USB with plain text
- * values; sensitive fields (apiToken, debugServerUrl) are encrypted on next Save.
+ * Storage approach: JSON is stored as a text element (type 500) inside a
+ * hidden .note file, using only SDK APIs (PluginFileAPI, PluginCommAPI,
+ * FileUtils). No native modules needed -- pure JS build.
  *
- * Encryption: AES-256 via crypto-js. Encrypted values start with "U2FsdGVkX1"
- * (CryptoJS signature). Plain text values are accepted on load and encrypted
- * on next save, so USB-seeded configs work seamlessly.
+ * Obfuscation: XOR + base64. Obfuscated values start with "xor1:" prefix.
+ * Plain text values are accepted on load and obfuscated on next save.
  */
 
-import RNFS from 'react-native-fs';
-import CryptoJS from 'crypto-js';
+import {PluginFileAPI, PluginCommAPI, PluginNoteAPI, FileUtils} from 'sn-plugin-lib';
 import {log} from './debug';
 
 // Bundled config (build-time, gitignored)
@@ -41,91 +40,206 @@ const DEFAULT_CONFIG = {
   markAsTextLink: false,
 };
 
-// Fields that get encrypted on disk
+// Fields that get obfuscated on disk
 const SENSITIVE_KEYS = ['apiToken', 'debugServerUrl'];
 
-const CONFIG_DIR = '/storage/emulated/0/MyStyle/SuperTask';
-const CONFIG_FILE = CONFIG_DIR + '/supertask-config.json';
+const CONFIG_DIR = '/MyStyle/SuperTask';
+const CONFIG_NOTE = CONFIG_DIR + '/supertask-config.note';
+const CONFIG_PREFIX = 'ST_CFG:';
 
-// Encryption key -- embedded in Hermes bytecode, not trivially readable
-const ENC_KEY = 'sntask_v1_8f3a2c9d7e1b';
+// Obfuscation key -- embedded in Hermes bytecode, not trivially readable
+const OBF_KEY = 'sntask_v1_8f3a2c9d7e1b';
+const OBF_PREFIX = 'xor1:';
 
-// In-memory cache (always holds decrypted values)
+// In-memory cache (always holds decoded values)
 let _runtimeConfig = null;
 let _configSource = 'defaults'; // 'file' | 'bundled' | 'defaults'
 
 /**
- * Check if a string is a CryptoJS encrypted value
+ * Check if a string is an obfuscated value
  */
-function isEncrypted(value) {
-  return typeof value === 'string' && value.startsWith('U2FsdGVkX1');
+function isObfuscated(value) {
+  return typeof value === 'string' && value.startsWith(OBF_PREFIX);
 }
 
 /**
- * Encrypt a string value
+ * XOR a string against the key, return base64-encoded result.
+ * Uses btoa/atob (available in Hermes since RN 0.70+).
  */
-function encrypt(value) {
+function xorEncode(str) {
+  const chars = [];
+  for (let i = 0; i < str.length; i++) {
+    chars.push(str.charCodeAt(i) ^ OBF_KEY.charCodeAt(i % OBF_KEY.length));
+  }
+  return btoa(String.fromCharCode(...chars));
+}
+
+/**
+ * Decode a base64+XOR obfuscated string
+ */
+function xorDecode(encoded) {
+  const bytes = atob(encoded);
+  const chars = [];
+  for (let i = 0; i < bytes.length; i++) {
+    chars.push(bytes.charCodeAt(i) ^ OBF_KEY.charCodeAt(i % OBF_KEY.length));
+  }
+  return String.fromCharCode(...chars);
+}
+
+/**
+ * Obfuscate a string value
+ */
+function obfuscate(value) {
   if (!value) return value;
-  return CryptoJS.AES.encrypt(value, ENC_KEY).toString();
+  return OBF_PREFIX + xorEncode(value);
 }
 
 /**
- * Decrypt a string value. Returns original if not encrypted or decryption fails.
+ * Deobfuscate a string value. Returns original if not obfuscated.
  */
-function decrypt(value) {
-  if (!value || !isEncrypted(value)) return value;
+function deobfuscate(value) {
+  if (!value || !isObfuscated(value)) return value;
   try {
-    const bytes = CryptoJS.AES.decrypt(value, ENC_KEY);
-    const result = bytes.toString(CryptoJS.enc.Utf8);
-    return result || value; // fallback to original if empty result
+    return xorDecode(value.slice(OBF_PREFIX.length));
   } catch {
     return value;
   }
 }
 
 /**
- * Decrypt sensitive fields in a config object (for loading)
+ * Deobfuscate sensitive fields in a config object (for loading)
  */
-function decryptConfig(config) {
+function deobfuscateConfig(config) {
   const result = {...config};
   for (const key of SENSITIVE_KEYS) {
     if (result[key]) {
-      result[key] = decrypt(result[key]);
+      result[key] = deobfuscate(result[key]);
     }
   }
   return result;
 }
 
 /**
- * Encrypt sensitive fields in a config object (for saving)
+ * Obfuscate sensitive fields in a config object (for saving)
  */
-function encryptConfig(config) {
+function obfuscateConfig(config) {
   const result = {...config};
   for (const key of SENSITIVE_KEYS) {
-    if (result[key] && !isEncrypted(result[key])) {
-      result[key] = encrypt(result[key]);
+    if (result[key] && !isObfuscated(result[key])) {
+      result[key] = obfuscate(result[key]);
     }
   }
   return result;
 }
 
 /**
- * Read config from JSON file on device
+ * Ensure the config .note file exists. Creates it if missing.
+ * Pattern from sn-keyworder: check getNoteTotalPageNum first,
+ * only createNote if needed.
+ */
+async function ensureConfigNote() {
+  try {
+    // Ensure directory exists
+    const dirExists = await FileUtils.exists(CONFIG_DIR);
+    if (!dirExists) {
+      await FileUtils.makeDir(CONFIG_DIR);
+      log('Config', 'Created config directory');
+    }
+
+    // Check if note already exists (sn-keyworder pattern)
+    const pageRes = await PluginFileAPI.getNoteTotalPageNum(CONFIG_NOTE);
+    if (pageRes?.success && pageRes.result > 0) {
+      return true;
+    }
+
+    // Create the storage note
+    log('Config', 'Creating config .note file');
+    const result = await PluginFileAPI.createNote({
+      notePath: CONFIG_NOTE,
+      template: 'none',
+      mode: 0,
+      isPortrait: true,
+    });
+    const ok = result?.success || result?.result === true;
+    if (ok) {
+      log('Config', 'Created config .note file');
+      return true;
+    }
+
+    // Fallback: try with a system template name
+    log('Config', `createNote template=none failed (${result?.error?.code}), trying system template`);
+    const templatesResult = await PluginCommAPI.getNoteSystemTemplates();
+    const templates = templatesResult?.result || [];
+    if (templates.length > 0) {
+      const t = templates[0];
+      const templateName = typeof t === 'string' ? t : t?.name;
+      if (templateName) {
+        const fallback = await PluginFileAPI.createNote({
+          notePath: CONFIG_NOTE,
+          template: templateName,
+          mode: 0,
+          isPortrait: true,
+        });
+        const fbOk = fallback?.success || fallback?.result === true;
+        if (fbOk) {
+          log('Config', `Created config .note with system template: ${templateName}`);
+          return true;
+        }
+        log('Config', `createNote fallback failed: ${JSON.stringify(fallback?.error)}`);
+      }
+    }
+
+    return false;
+  } catch (e) {
+    log('Config', `ensureConfigNote error: ${e.message}`);
+    return false;
+  }
+}
+
+/**
+ * Read config JSON from the .note file's text element
  */
 async function loadFromFile() {
   try {
-    const exists = await RNFS.exists(CONFIG_FILE);
-    if (!exists) {
+    const result = await PluginFileAPI.getElements(0, CONFIG_NOTE);
+    if (!result?.success || !result.result) {
       log('Config', 'Config file not found');
       return null;
     }
-    const json = await RNFS.readFile(CONFIG_FILE, 'utf8');
+
+    const elements = result.result;
+    // Find the text element (type 500) containing our JSON
+    const textEl = elements.find(el => el.type === 500 && el.textBox);
+    if (!textEl) {
+      log('Config', 'No text element in config note');
+      for (const el of elements) {
+        try { await el.recycle(); } catch {}
+      }
+      return null;
+    }
+
+    let json = textEl.textBox.textContentFull;
+    // Recycle all elements
+    for (const el of elements) {
+      try { await el.recycle(); } catch {}
+    }
+
+    if (!json) {
+      log('Config', 'Text element has no content');
+      return null;
+    }
+
+    // Strip prefix if present (keyworder pattern uses a prefix)
+    if (json.startsWith(CONFIG_PREFIX)) {
+      json = json.slice(CONFIG_PREFIX.length);
+    }
+
     const data = JSON.parse(json);
     if (data && typeof data === 'object') {
-      const decrypted = decryptConfig(data);
-      const hadEncrypted = SENSITIVE_KEYS.some(k => data[k] && isEncrypted(data[k]));
-      log('Config', `Loaded from file (${Object.keys(data).length} keys, encrypted=${hadEncrypted})`);
-      return decrypted;
+      const decoded = deobfuscateConfig(data);
+      const hadObfuscated = SENSITIVE_KEYS.some(k => data[k] && isObfuscated(data[k]));
+      log('Config', `Loaded from file (${Object.keys(data).length} keys, obfuscated=${hadObfuscated})`);
+      return decoded;
     }
   } catch (e) {
     log('Config', `File read failed: ${e.message}`);
@@ -134,20 +248,51 @@ async function loadFromFile() {
 }
 
 /**
- * Write config to JSON file on device (encrypts sensitive fields)
+ * Write config JSON to the .note file as a text element.
+ * Follows sn-keyworder pattern: clearLayerElements + insertElements
+ * with plain objects (no createElement needed).
  */
 async function saveToFile(config) {
   try {
-    const dirExists = await RNFS.exists(CONFIG_DIR);
-    if (!dirExists) {
-      await RNFS.mkdir(CONFIG_DIR);
-      log('Config', 'Created config directory');
+    const noteReady = await ensureConfigNote();
+    if (!noteReady) {
+      log('Config', 'Cannot save: config note not available');
+      return false;
     }
 
-    const encrypted = encryptConfig(config);
-    const json = JSON.stringify(encrypted, null, 2);
-    await RNFS.writeFile(CONFIG_FILE, json, 'utf8');
-    log('Config', `Saved to file (${json.length} chars, sensitive fields encrypted)`);
+    const encoded = obfuscateConfig(config);
+    const dataStr = CONFIG_PREFIX + JSON.stringify(encoded);
+
+    // Clear existing elements on page 0, layer 0
+    await PluginFileAPI.clearLayerElements(CONFIG_NOTE, 0, 0);
+
+    // Insert as plain object (sn-keyworder pattern -- no createElement needed)
+    const insertResult = await PluginFileAPI.insertElements(CONFIG_NOTE, 0, [
+      {
+        type: 500,
+        layerNum: 0,
+        pageNum: 0,
+        textBox: {
+          textContentFull: dataStr,
+          textRect: {left: 0, top: 0, right: 200, bottom: 40},
+          fontSize: 10,
+          textBold: 0,
+          textItalics: 0,
+          textAlign: 0,
+          textEditable: 0,
+        },
+      },
+    ]);
+
+    if (!insertResult?.success) {
+      log('Config', `insertElements failed: ${JSON.stringify(insertResult?.error)}`);
+      return false;
+    }
+
+    // Persist to disk
+    try { await PluginNoteAPI.saveCurrentNote(); } catch {}
+
+    log('Config', `Saved to file (${dataStr.length} chars)`);
     return true;
   } catch (e) {
     log('Config', `File write failed: ${e.message}`);
