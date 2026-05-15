@@ -11,6 +11,8 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
+import {Linking} from 'react-native';
+import {PluginCommAPI, PluginManager, FileUtils} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -53,6 +55,67 @@ export default function TaskDetail({nav, task, projects}: Props) {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [viewNoteStatus, setViewNoteStatus] = useState('');
+
+  const handleViewNote = async () => {
+    if (!noteContext) return;
+    log('TaskDetail', `VIEW NOTE pressed: ${noteContext.noteFile} p.${noteContext.pageNum}`);
+    setViewNoteStatus('Checking...');
+
+    try {
+      const fp = await PluginCommAPI.getCurrentFilePath();
+      const currentPath = fp?.result || '';
+      const currentFile = currentPath.split('/').pop() || '';
+
+      if (currentFile === noteContext.noteFile) {
+        // Same note -- close plugin, user is already there
+        setViewNoteStatus(`Go to page ${noteContext.pageNum}`);
+        log('TaskDetail', `Same note, closing plugin. Page ${noteContext.pageNum}`);
+        setTimeout(() => PluginManager.closePluginView(), 800);
+        return;
+      }
+
+      // Different note -- try openFilePath, then Linking.openURL, then show path
+      log('TaskDetail', `Different note. Current: ${currentFile}, Target: ${noteContext.noteFile}`);
+
+      // Build full path -- noteFile is just the filename, need the directory
+      // Try to derive from currentPath by replacing the filename
+      const dir = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+      const targetPath = dir + noteContext.noteFile;
+
+      // Attempt 1: openFilePath
+      try {
+        log('TaskDetail', `Trying openFilePath(${targetPath})`);
+        const result = await FileUtils.openFilePath(targetPath);
+        if (result) {
+          setViewNoteStatus(`Opening... page ${noteContext.pageNum}`);
+          log('TaskDetail', `openFilePath succeeded: ${result}`);
+          return;
+        }
+      } catch (e: any) {
+        log('TaskDetail', `openFilePath failed: ${e.message}`);
+      }
+
+      // Attempt 2: Linking.openURL
+      try {
+        const url = `file://${targetPath}`;
+        log('TaskDetail', `Trying Linking.openURL(${url})`);
+        await Linking.openURL(url);
+        setViewNoteStatus(`Opening... page ${noteContext.pageNum}`);
+        log('TaskDetail', 'Linking.openURL succeeded');
+        return;
+      } catch (e: any) {
+        log('TaskDetail', `Linking.openURL failed: ${e.message}`);
+      }
+
+      // Fallback: show the path for manual navigation
+      setViewNoteStatus(`${noteContext.noteFile} p.${noteContext.pageNum}`);
+      log('TaskDetail', 'All navigation attempts failed, showing path');
+    } catch (e: any) {
+      logError('TaskDetail', e);
+      setViewNoteStatus(`Error: ${e.message}`);
+    }
+  };
 
   useEffect(() => {
     log('TaskDetail', `MOUNT task=${task?.id} content="${task?.content}" projects=${projects?.length}`);
@@ -163,10 +226,20 @@ export default function TaskDetail({nav, task, projects}: Props) {
 
       {noteContext && (
         <View style={styles.noteContext}>
-          <Text style={styles.noteContextLabel}>Captured from</Text>
-          <Text style={styles.noteContextValue}>
-            {noteContext.noteFile.replace('.note', '')} — page {noteContext.pageNum}
-          </Text>
+          <View style={styles.noteContextRow}>
+            <View style={{flex: 1}}>
+              <Text style={styles.noteContextLabel}>Captured from</Text>
+              <Text style={styles.noteContextValue}>
+                {noteContext.noteFile.replace('.note', '')} — page {noteContext.pageNum}
+              </Text>
+            </View>
+            <Pressable style={styles.viewNoteBtn} onPress={handleViewNote}>
+              <Text style={styles.viewNoteBtnText}>View Note</Text>
+            </Pressable>
+          </View>
+          {viewNoteStatus ? (
+            <Text style={styles.viewNoteStatus}>{viewNoteStatus}</Text>
+          ) : null}
         </View>
       )}
 
@@ -296,6 +369,10 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 20,
   },
+  noteContextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   noteContextLabel: {
     fontSize: 12,
     fontWeight: '600',
@@ -306,6 +383,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#000000',
+  },
+  viewNoteBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    marginLeft: 12,
+  },
+  viewNoteBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  viewNoteStatus: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#000000',
+    marginTop: 8,
   },
   section: {
     marginBottom: 20,
