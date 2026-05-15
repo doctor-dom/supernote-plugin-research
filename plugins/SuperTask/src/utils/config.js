@@ -50,15 +50,16 @@ let _configSource = 'defaults'; // 'mystyle' | 'storage' | 'bundled' | 'defaults
  */
 async function loadFromMyStyle() {
   try {
+    log('Config', `Trying MyStyle JSON: ${MYSTYLE_CONFIG_PATH}`);
     const response = await fetch(MYSTYLE_CONFIG_PATH);
-    // file:// URLs return status 0 on Android -- ignore status, parse directly
+    log('Config', `MyStyle fetch status: ${response.status} ok: ${response.ok}`);
     const data = await response.json();
     if (data && typeof data === 'object') {
       log('Config', `Loaded from MyStyle JSON (${Object.keys(data).length} keys)`);
       return data;
     }
   } catch (e) {
-    // File doesn't exist or invalid JSON -- normal on first run
+    log('Config', `MyStyle JSON not found or invalid: ${e.message}`);
   }
   return null;
 }
@@ -97,34 +98,59 @@ async function loadFromStorage() {
  */
 async function saveToStorage(config) {
   try {
-    // Ensure directory exists
+    // Step 1: Ensure directory exists
     try {
       const dirExists = await FileUtils.exists(STORAGE_DIR);
-      if (!dirExists) await FileUtils.makeDir(STORAGE_DIR);
+      log('Config', `Storage dir exists: ${dirExists}`);
+      if (!dirExists) {
+        const mkResult = await FileUtils.makeDir(STORAGE_DIR);
+        log('Config', `makeDir result: ${JSON.stringify(mkResult)}`);
+      }
     } catch (e) {
       log('Config', `Dir create failed: ${e.message}`);
     }
 
-    // Ensure storage note exists
-    const pageCount = await PluginFileAPI.getNoteTotalPageNum(STORAGE_NOTE);
-    if (!pageCount?.success || !pageCount.result || pageCount.result < 1) {
-      const createResult = await PluginFileAPI.createNote({
-        notePath: STORAGE_NOTE,
-        template: 'none',
-        mode: 0,
-        isPortrait: true,
-      });
-      log('Config', `Created storage note: ${JSON.stringify(createResult)}`);
-    }
-
-    // Clear existing elements and write new config
+    // Step 2: Ensure storage note exists
+    let noteExists = false;
     try {
-      await PluginFileAPI.clearLayerElements(STORAGE_NOTE, 0, 0);
+      const pageCount = await PluginFileAPI.getNoteTotalPageNum(STORAGE_NOTE);
+      log('Config', `Storage note pageCount: ${JSON.stringify(pageCount)}`);
+      noteExists = pageCount?.success && pageCount.result > 0;
     } catch (e) {
-      // May fail if note is empty -- that's fine
+      log('Config', `Storage note check failed: ${e.message}`);
     }
 
+    if (!noteExists) {
+      log('Config', `Creating storage note at: ${STORAGE_NOTE}`);
+      try {
+        const createResult = await PluginFileAPI.createNote({
+          notePath: STORAGE_NOTE,
+          template: 'none',
+          mode: 0,
+          isPortrait: true,
+        });
+        log('Config', `createNote result: ${JSON.stringify(createResult)}`);
+        if (!createResult?.success) {
+          log('Config', `createNote failed, cannot persist config`);
+          return false;
+        }
+      } catch (e) {
+        log('Config', `createNote error: ${e.message}`);
+        return false;
+      }
+    }
+
+    // Step 3: Clear existing elements
+    try {
+      const clearResult = await PluginFileAPI.clearLayerElements(STORAGE_NOTE, 0, 0);
+      log('Config', `clearLayerElements result: ${JSON.stringify(clearResult)}`);
+    } catch (e) {
+      log('Config', `clearLayerElements failed (ok if empty): ${e.message}`);
+    }
+
+    // Step 4: Write config as text element
     const dataStr = STORAGE_PREFIX + JSON.stringify(config);
+    log('Config', `Writing config (${dataStr.length} chars) to storage note`);
     const insertResult = await PluginFileAPI.insertElements(STORAGE_NOTE, 0, [
       {
         type: 500,
@@ -146,7 +172,7 @@ async function saveToStorage(config) {
       log('Config', 'Config saved to storage note');
       return true;
     } else {
-      log('Config', `Storage save failed: ${insertResult?.error?.message}`);
+      log('Config', `insertElements failed: ${JSON.stringify(insertResult)}`);
       return false;
     }
   } catch (e) {

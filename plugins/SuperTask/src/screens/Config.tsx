@@ -207,7 +207,9 @@ export default function Config({onNavigate, nav}: Props) {
   // ── Preferences Tab ──────────────────────────────────────
   const renderPreferencesTab = () => (
     <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-      {/* Default tab */}
+      {/* ── General ── */}
+      <Text style={s.groupTitle}>General</Text>
+
       <Text style={s.sectionTitle}>Default tab</Text>
       <View style={s.toggleRow}>
         {TAB_OPTIONS.map(opt => (
@@ -222,7 +224,6 @@ export default function Config({onNavigate, nav}: Props) {
         ))}
       </View>
 
-      {/* After creating a task */}
       <Text style={s.sectionTitle}>After creating a task</Text>
       <View style={s.inlineRow}>
         <Pressable style={s.radioRow} onPress={() => setPostCreateAction('prompt')}>
@@ -235,7 +236,6 @@ export default function Config({onNavigate, nav}: Props) {
         </Pressable>
       </View>
 
-      {/* Open plugin to */}
       <Text style={s.sectionTitle}>Open plugin to</Text>
       <View style={s.inlineRow}>
         <Pressable style={s.radioRow} onPress={() => setDefaultScreen('task-home')}>
@@ -248,9 +248,12 @@ export default function Config({onNavigate, nav}: Props) {
         </Pressable>
       </View>
 
-      {/* Show projects -- 2-column grid */}
+      {/* ── Projects ── */}
       {projects.length > 0 && (
         <>
+          <View style={s.separator} />
+          <Text style={s.groupTitle}>Projects</Text>
+
           <Text style={s.sectionTitle}>
             Show projects  <Text style={s.hint}>Select which to show</Text>
           </Text>
@@ -265,12 +268,7 @@ export default function Config({onNavigate, nav}: Props) {
               );
             })}
           </View>
-        </>
-      )}
 
-      {/* Default project -- horizontal button row */}
-      {projects.length > 0 && (
-        <>
           <Text style={s.sectionTitle}>Default project for new tasks</Text>
           <View style={s.buttonGrid}>
             <Pressable
@@ -292,7 +290,10 @@ export default function Config({onNavigate, nav}: Props) {
         </>
       )}
 
-      {/* Mark as text font size */}
+      {/* ── Handwriting ── */}
+      <View style={s.separator} />
+      <Text style={s.groupTitle}>Handwriting</Text>
+
       <Text style={s.sectionTitle}>Mark as text font size</Text>
       <View style={s.inlineRow}>
         <Text style={s.sizeLabel}>Size:</Text>
@@ -308,7 +309,6 @@ export default function Config({onNavigate, nav}: Props) {
         ))}
       </View>
 
-      {/* Link to Todoist */}
       <Text style={s.sectionTitle}>Link to Todoist task</Text>
       <Text style={s.hint}>Adds dashed border + tappable link to task.</Text>
       <Pressable style={s.radioRow} onPress={() => setMarkAsTextLink(!markAsTextLink)}>
@@ -316,9 +316,10 @@ export default function Config({onNavigate, nav}: Props) {
         <Text style={s.radioLabel}>Add Todoist link to replaced text</Text>
       </Pressable>
 
+      {/* ── Advanced ── */}
       <View style={s.separator} />
+      <Text style={s.groupTitle}>Advanced</Text>
 
-      {/* Debug mode */}
       <Pressable style={s.radioRow} onPress={() => setDebugMode(!debugMode)}>
         <Text style={s.checkbox}>{debugMode ? '[X]' : '[  ]'}</Text>
         <Text style={s.radioLabel}>Debug mode</Text>
@@ -388,8 +389,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: '#000000',
   },
   title: {fontSize: 24, fontWeight: '700', color: '#000000'},
   headerBtns: {flexDirection: 'row', gap: 8},
@@ -425,11 +424,19 @@ const s = StyleSheet.create({
   scrollContent: {padding: 20, paddingBottom: 40},
 
   // Sections
+  groupTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#888888',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
   sectionTitle: {
     fontSize: 15,
     fontWeight: '700',
     color: '#000000',
-    marginTop: 14,
+    marginTop: 10,
     marginBottom: 6,
   },
   hint: {fontSize: 12, color: '#666666', fontWeight: '400'},
@@ -486,7 +493,7 @@ const s = StyleSheet.create({
   sourceChipText: {fontSize: 13, fontWeight: '600', color: '#000000'},
 
   // Toggle row (horizontal buttons like Default tab)
-  toggleRow: {flexDirection: 'row', gap: 0},
+  toggleRow: {flexDirection: 'row', gap: 6},
   toggleBtn: {
     flex: 1,
     paddingVertical: 12,
