@@ -12,7 +12,8 @@ import {
   FlatList,
   StyleSheet,
 } from 'react-native';
-import {PluginManager, PluginCommAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {getTasksForPage} from '../utils/taskRegistry';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasks, getProjects, completeTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -47,6 +48,8 @@ export default function TaskHome({nav}: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pageRef, setPageRef] = useState('');
+  const [pageTaskIds, setPageTaskIds] = useState<string[]>([]);
+  const [registryPageTasks, setRegistryPageTasks] = useState<any[]>([]);
   const [debugMode, setDebugMode] = useState(false);
 
   // Load default tab from config and detect current page on mount
@@ -59,18 +62,51 @@ export default function TaskHome({nav}: Props) {
       if (config.debugMode) setDebugMode(true);
     });
 
-    // Detect current note/page for "This Page" section
+    // Detect current note/page, scan for supertask links, read registry
     (async () => {
       try {
         const fp = await PluginCommAPI.getCurrentFilePath();
         const pn = await PluginCommAPI.getCurrentPageNum();
         const filePath = fp?.result || '';
         const pageNum = pn?.result ?? 0;
-        if (filePath) {
-          const fileName = filePath.split('/').pop()?.replace('.note', '') || '';
-          const ref = `From: ${fileName} p.${pageNum}`;
-          setPageRef(ref);
-          log('TaskHome', `Page context: ${ref}`);
+        if (!filePath) return;
+
+        const fileName = filePath.split('/').pop()?.replace('.note', '') || '';
+        const noteFile = filePath.split('/').pop() || '';
+        const ref = `From: ${fileName} p.${pageNum}`;
+        setPageRef(ref);
+        log('TaskHome', `Page context: ${ref}`);
+
+        // Scan page elements for supertask:// links
+        try {
+          const elemResult = await PluginFileAPI.getElements(pageNum, filePath);
+          if (elemResult?.success && elemResult.result) {
+            const linkElements = elemResult.result.filter(
+              (el: any) => el.type === 600 && el.link?.destPath?.startsWith('supertask://task/')
+            );
+            const ids = linkElements.map((el: any) => {
+              const path = el.link.destPath;
+              return path.replace('supertask://task/', '');
+            });
+            setPageTaskIds(ids);
+            log('TaskHome', `Found ${ids.length} supertask links on page`);
+
+            // Recycle elements to free native memory
+            elemResult.result.forEach((el: any) => {
+              if (el.recycle) el.recycle();
+            });
+          }
+        } catch (e: any) {
+          log('TaskHome', `Element scan failed: ${e.message}`);
+        }
+
+        // Read from local registry
+        try {
+          const regTasks = await getTasksForPage(noteFile, pageNum);
+          setRegistryPageTasks(regTasks);
+          log('TaskHome', `Registry: ${regTasks.length} tasks for this page`);
+        } catch (e: any) {
+          log('TaskHome', `Registry read failed: ${e.message}`);
         }
       } catch (e: any) {
         log('TaskHome', `Page context detection failed: ${e.message}`);
@@ -141,10 +177,44 @@ export default function TaskHome({nav}: Props) {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // Tasks linked to the current note page
-  const pageTasks = pageRef
-    ? tasks.filter(t => t.description && t.description.includes(pageRef))
-    : [];
+  // Tasks linked to the current note page.
+  // Priority: match by supertask link IDs from element scan, then fall back
+  // to description text match, then registry-only tasks (not yet in Todoist response).
+  const pageTasks = (() => {
+    const seen = new Set<string>();
+    const result: any[] = [];
+
+    // 1. Tasks whose IDs were found as supertask:// links on the page
+    if (pageTaskIds.length > 0) {
+      for (const id of pageTaskIds) {
+        const match = tasks.find(t => t.id === id);
+        if (match && !seen.has(match.id)) {
+          seen.add(match.id);
+          result.push(match);
+        }
+      }
+    }
+
+    // 2. Tasks matched by description back-reference (backward compat)
+    if (pageRef) {
+      for (const t of tasks) {
+        if (!seen.has(t.id) && t.description && t.description.includes(pageRef)) {
+          seen.add(t.id);
+          result.push(t);
+        }
+      }
+    }
+
+    // 3. Registry-only tasks (created this session, may not be in Todoist response yet)
+    for (const rt of registryPageTasks) {
+      if (!seen.has(rt.id)) {
+        seen.add(rt.id);
+        result.push({id: rt.id, content: rt.content, _registryOnly: true});
+      }
+    }
+
+    return result;
+  })();
 
   const renderThisPage = () => {
     if (pageTasks.length === 0 || loading) return null;
