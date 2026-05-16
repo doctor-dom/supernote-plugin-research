@@ -1,10 +1,19 @@
 /**
- * Gesture Detector -- long-press finger detection for supertask:// link activation.
+ * Gesture Detector -- finger gesture detection for SuperTask.
  *
- * Registers a motion listener at plugin init. When the user long-presses
- * on marked handwriting (finger, >800ms, <20px drift), scans the current
- * page for supertask:// links at the touch point and opens the plugin to
- * that task's detail view.
+ * Two gestures detected from a single motion listener:
+ *
+ * 1. LONG PRESS (static hold):
+ *    - Finger down, hold >= 800ms, NO movement, finger up
+ *    - Scans for supertask:// links at touch point → opens task detail
+ *
+ * 2. LASSO-ADD (hold then drag):
+ *    - Finger down, hold >= 400ms, THEN start moving (draw selection)
+ *    - Bounding box of movement → programmatic lassoElements → QuickAdd
+ *    - Minimum 50x50px bbox required to avoid tiny accidental selections
+ *
+ * Differentiator: movement that starts BEFORE 400ms = normal touch (neither).
+ * Movement that starts AFTER 400ms hold = lasso-add. No movement = long press.
  *
  * Events only fire when the plugin UI is dismissed (full-screen RN view
  * intercepts all touches). The listener stays active across UI open/close.
@@ -12,6 +21,7 @@
 
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {log} from './debug';
+import {loadConfig} from './config';
 
 // --- Action / tool decoding (matches Diagnostics format) ---
 const ACTION_NAMES = {0: 'DOWN', 1: 'UP', 2: 'MOVE', 3: 'CANCEL', 5: 'PTR_DOWN', 6: 'PTR_UP'};
@@ -25,14 +35,17 @@ function decodeAction(raw) {
 }
 
 // --- Config ---
-const LONG_PRESS_MS = 800;    // Minimum hold time for long press
-const MAX_DRIFT_PX = 20;      // Maximum finger movement during hold
+const LONG_PRESS_MS = 800;    // Minimum hold time for static long press
+const LASSO_HOLD_MS = 400;    // Minimum hold before movement = lasso-add
+const MAX_DRIFT_PX = 20;      // Movement threshold to differentiate gestures
+const MIN_LASSO_SIZE = 50;    // Minimum bbox dimension to count as valid lasso
 const HIT_PADDING_PX = 30;    // Extra padding around link bounds for hit test
 
 // --- Module state ---
 let _sub = null;               // Motion listener subscription
 let _fingerDown = null;        // {x, y, time} of last finger DOWN
 let _enabled = true;           // Can be toggled off
+let _lassoToolType = 1;        // 1 = FINGER, 2 = PEN (loaded from config)
 
 /**
  * Initialize the gesture detector. Call once at plugin startup.
@@ -45,6 +58,12 @@ export function initGestureDetector() {
   }
 
   log('Gesture', 'Initializing gesture detector');
+
+  // Load lasso gesture input preference
+  loadConfig().then(config => {
+    _lassoToolType = config.lassoGestureInput === 'pen' ? 2 : 1;
+    log('Gesture', `Lasso gesture input: ${config.lassoGestureInput || 'finger'} (toolType=${_lassoToolType})`);
+  }).catch(() => {});
 
   let _eventCount = 0;
   _sub = PluginManager.registerMotionListener(1, {
@@ -64,34 +83,36 @@ export function initGestureDetector() {
 
       if (!_enabled) return;
 
-      // If pen activity or multi-pointer detected during a finger hold,
-      // cancel -- this is a gesture erase, two-finger lasso, etc.
+      // Mixed input detection: if the "other" tool type fires during a hold,
+      // cancel the gesture. Catches gesture erase (pen + finger).
+      // - For finger-mode lasso: pen activity cancels
+      // - For pen-mode lasso: finger activity cancels
       if (_fingerDown) {
-        const ptrs = msg.pointerCount ?? msg.pointers?.length ?? 1;
-        if (msg.toolType === 2 || ptrs > 1) {
+        const cancelTool = _lassoToolType === 1 ? 2 : 1;
+        if (msg.toolType === cancelTool) {
           if (!_mixedInput) {
-            log('Gesture', `Mixed input during hold (tool=${tool} ptrs=${ptrs}) -- cancelling`);
+            log('Gesture', `${TOOL_NAMES[cancelTool]} activity during hold -- cancelling`);
             _mixedInput = true;
           }
         }
       }
 
-      // Only handle finger events (toolType 1)
-      if (msg.toolType !== 1) return;
+      // Handle events from the configured lasso tool type.
+      // Link long-press is always finger (toolType 1).
+      // Lasso-add uses _lassoToolType (1 or 2).
+      // When _lassoToolType is 'pen', finger events still handle link detection
+      // but NOT lasso-add. When it's 'finger', both use finger.
+      if (msg.toolType !== 1 && msg.toolType !== _lassoToolType) return;
 
       const baseAction = msg.action & 0xff;
 
       if (baseAction === 0 || baseAction === 5) {
-        // FINGER DOWN or PTR_DOWN
-        onFingerDown(msg.x, msg.y);
+        onFingerDown(msg.x, msg.y, msg.toolType);
       } else if (baseAction === 2) {
-        // FINGER MOVE
-        onFingerMove(msg.x, msg.y);
+        onFingerMove(msg.x, msg.y, msg.toolType);
       } else if (baseAction === 1 || baseAction === 6) {
-        // FINGER UP or PTR_UP
-        onFingerUp(msg.x, msg.y);
+        onFingerUp(msg.x, msg.y, msg.toolType);
       } else if (baseAction === 3) {
-        // CANCEL
         cancelLongPress();
       }
     },
@@ -121,59 +142,129 @@ export function setGestureEnabled(enabled) {
   log('Gesture', `Enabled: ${enabled}`);
 }
 
+/**
+ * Reload gesture config (call after settings change).
+ */
+export function reloadGestureConfig() {
+  loadConfig().then(config => {
+    _lassoToolType = config.lassoGestureInput === 'pen' ? 2 : 1;
+    log('Gesture', `Config reloaded: lasso input=${config.lassoGestureInput || 'finger'}`);
+  }).catch(() => {});
+}
+
 // --- Internal handlers ---
 // NOTE: setTimeout does NOT fire when the plugin view is closed (JS timers
 // are suspended). Long press is detected on the UP event by checking hold
 // duration -- per gesture-research.md, long press has ZERO MOVE events.
 
-let _driftExceeded = false;  // Track if finger moved too much
-let _mixedInput = false;     // Track if pen/multi-pointer occurred during hold
+let _driftExceeded = false;  // Track if finger moved too much (before hold threshold)
+let _mixedInput = false;     // Track if pen occurred during hold
 let _linkScanPromise = null; // Async pre-scan started on finger DOWN
+let _lassoMode = false;      // Whether we've entered lasso-drawing mode
+let _lassoBbox = null;       // {minX, minY, maxX, maxY} bounding box of movement
 
-function onFingerDown(x, y) {
-  _fingerDown = {x, y, time: Date.now()};
+function onFingerDown(x, y, toolType) {
+  _fingerDown = {x, y, time: Date.now(), toolType};
   _driftExceeded = false;
   _mixedInput = false;
-  // Start scanning for links immediately -- runs during the hold so
-  // results are ready by the time the finger lifts.
-  _linkScanPromise = preScanLinks(x, y);
+  _lassoMode = false;
+  _lassoBbox = null;
+  // Start scanning for links immediately (finger only -- link activation)
+  if (toolType === 1) {
+    _linkScanPromise = preScanLinks(x, y);
+  }
   log('Gesture', `DOWN at (${Math.round(x)},${Math.round(y)})`);
 }
 
-function onFingerMove(x, y) {
-  if (!_fingerDown || _driftExceeded) return;
+function onFingerMove(x, y, toolType) {
+  if (!_fingerDown || _mixedInput) return;
+  // Only the lasso tool type can enter lasso mode
+  if (toolType !== _lassoToolType) return;
 
-  // Check drift
+  // Already in lasso mode -- just extend the bounding box
+  if (_lassoMode) {
+    _lassoBbox.minX = Math.min(_lassoBbox.minX, x);
+    _lassoBbox.minY = Math.min(_lassoBbox.minY, y);
+    _lassoBbox.maxX = Math.max(_lassoBbox.maxX, x);
+    _lassoBbox.maxY = Math.max(_lassoBbox.maxY, y);
+    return;
+  }
+
+  // Not yet in lasso mode -- check drift
   const dx = x - _fingerDown.x;
   const dy = y - _fingerDown.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
   if (dist > MAX_DRIFT_PX) {
-    log('Gesture', `DRIFT: ${Math.round(dist)}px > ${MAX_DRIFT_PX}px -- not a long press`);
-    _driftExceeded = true;
+    const elapsed = Date.now() - _fingerDown.time;
+
+    if (elapsed >= LASSO_HOLD_MS) {
+      // Held long enough before moving -- enter lasso-add mode
+      _lassoMode = true;
+      _lassoBbox = {
+        minX: Math.min(_fingerDown.x, x),
+        minY: Math.min(_fingerDown.y, y),
+        maxX: Math.max(_fingerDown.x, x),
+        maxY: Math.max(_fingerDown.y, y),
+      };
+      log('Gesture', `LASSO MODE entered after ${elapsed}ms hold (${TOOL_NAMES[toolType]})`);
+    } else {
+      // Moved too early -- not a gesture, just normal touch
+      log('Gesture', `DRIFT: ${Math.round(dist)}px after ${elapsed}ms -- too early for gesture`);
+      _driftExceeded = true;
+    }
   }
 }
 
-function onFingerUp(x, y) {
+function onFingerUp(x, y, toolType) {
   if (!_fingerDown) return;
 
   const held = Date.now() - _fingerDown.time;
+
+  if (_lassoMode && _lassoBbox && toolType === _lassoToolType) {
+    // Lasso-add gesture: compute final bbox
+    _lassoBbox.minX = Math.min(_lassoBbox.minX, x);
+    _lassoBbox.minY = Math.min(_lassoBbox.minY, y);
+    _lassoBbox.maxX = Math.max(_lassoBbox.maxX, x);
+    _lassoBbox.maxY = Math.max(_lassoBbox.maxY, y);
+
+    const w = _lassoBbox.maxX - _lassoBbox.minX;
+    const h = _lassoBbox.maxY - _lassoBbox.minY;
+
+    log('Gesture', `LASSO UP: bbox=${Math.round(_lassoBbox.minX)},${Math.round(_lassoBbox.minY)} ${Math.round(w)}x${Math.round(h)} held=${held}ms`);
+
+    if (w >= MIN_LASSO_SIZE && h >= MIN_LASSO_SIZE) {
+      log('Gesture', `LASSO-ADD DETECTED: ${Math.round(w)}x${Math.round(h)}px`);
+      handleLassoAdd(_lassoBbox);
+    } else {
+      log('Gesture', `Lasso too small (${Math.round(w)}x${Math.round(h)}), ignoring`);
+    }
+
+    resetState();
+    return;
+  }
+
   log('Gesture', `UP at (${Math.round(x)},${Math.round(y)}) after ${held}ms drift=${_driftExceeded} mixed=${_mixedInput}`);
 
-  // Long press: held >= threshold, no excessive drift, finger-only (no pen/multi-touch)
-  if (held >= LONG_PRESS_MS && !_driftExceeded && !_mixedInput) {
+  // Static long press (finger only): held >= threshold, no drift, no mixed input
+  if (toolType === 1 && held >= LONG_PRESS_MS && !_driftExceeded && !_mixedInput) {
     log('Gesture', `LONG PRESS DETECTED at (${Math.round(_fingerDown.x)},${Math.round(_fingerDown.y)}) held ${held}ms`);
     handleLongPress();
   }
 
-  _fingerDown = null;
-  _driftExceeded = false;
+  resetState();
 }
 
-function cancelLongPress() {
+function resetState() {
   _fingerDown = null;
   _driftExceeded = false;
   _mixedInput = false;
+  _lassoMode = false;
+  _lassoBbox = null;
+}
+
+function cancelLongPress() {
+  resetState();
   _linkScanPromise = null;
 }
 
@@ -276,6 +367,67 @@ async function handleLongPress() {
   }
 }
 
+// --- Lasso-add action ---
+
+async function handleLassoAdd(bbox) {
+  const rect = {
+    left: Math.round(bbox.minX),
+    top: Math.round(bbox.minY),
+    right: Math.round(bbox.maxX),
+    bottom: Math.round(bbox.maxY),
+  };
+
+  log('Gesture', `lassoElements rect: l=${rect.left} t=${rect.top} r=${rect.right} b=${rect.bottom}`);
+
+  try {
+    // Pre-check: verify the region contains capturable content (strokes,
+    // text boxes, or other elements). Skip only if completely empty.
+    const [fpResult, pnResult] = await Promise.all([
+      PluginCommAPI.getCurrentFilePath(),
+      PluginCommAPI.getCurrentPageNum(),
+    ]);
+    const filePath = fpResult?.result;
+    const pageNum = pnResult?.result ?? 0;
+
+    if (filePath) {
+      const elemResult = await PluginFileAPI.getElements(pageNum, filePath);
+      if (elemResult?.success && elemResult.result) {
+        const inRegion = elemResult.result.filter(el => {
+          // Check if element overlaps with the lasso bbox
+          if (el.X == null || el.Y == null) return false;
+          const elRight = el.X + (el.width || 0);
+          const elBottom = el.Y + (el.height || 0);
+          return el.X < rect.right && elRight > rect.left &&
+                 el.Y < rect.bottom && elBottom > rect.top;
+        });
+
+        recycleAll(elemResult.result);
+
+        if (inRegion.length === 0) {
+          log('Gesture', 'No elements in lasso region. Skipping.');
+          return;
+        }
+        log('Gesture', `Pre-check: ${inRegion.length} elements in region (types: ${[...new Set(inRegion.map(e => e.type))]})`);
+      }
+    }
+
+    // Programmatically create the lasso selection
+    const result = await PluginCommAPI.lassoElements(rect);
+    log('Gesture', `lassoElements result: ${JSON.stringify(result)}`);
+
+    if (!result?.success) {
+      log('Gesture', 'lassoElements failed -- no content in region?');
+      return;
+    }
+
+    // Open plugin to QuickAdd (same screen as lasso toolbar button 200)
+    global.__superTaskDeepLink = {action: 'lasso-add'};
+    openPluginView();
+  } catch (e) {
+    log('Gesture', `handleLassoAdd error: ${e.message}`);
+  }
+}
+
 function recycleAll(elements) {
   try {
     elements.forEach((el) => {
@@ -294,6 +446,8 @@ async function openPluginView() {
       log('Gesture', `Navigating via __superTaskNavigate: ${deepLink.action} taskId=${deepLink.taskId}`);
       if (deepLink.action === 'view-task' && deepLink.taskId) {
         global.__superTaskNavigate('deep-link-loading', {taskId: deepLink.taskId});
+      } else if (deepLink.action === 'lasso-add') {
+        global.__superTaskNavigate('capture-lasso');
       } else if (deepLink.action === 'this-page') {
         global.__superTaskNavigate('task-home', {focusTab: 'today'});
       }

@@ -1,7 +1,7 @@
 /**
  * Temp Link Navigation -- cross-note navigation via temporary insertTextLink.
  *
- * Creates a tappable link on the current page (bottom-center, 85% from top)
+ * Creates a tappable link on the current page (top-center)
  * pointing to a target note. On next plugin open, cleans up via deleteElements.
  *
  * NOTE: This is a workaround until Ratta exposes a direct note-open API.
@@ -69,9 +69,10 @@ async function clearPending() {
  *
  * @param {string} targetPath - Full path to the target .note file
  * @param {number} targetPage - Page number in target note (0-indexed)
+ * @param {string} [taskName] - Task name to display in the link text
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-export async function createTempLink(targetPath, targetPage = 0) {
+export async function createTempLink(targetPath, targetPage = 0, taskName) {
   try {
     // Get current context
     const [fpResult, pageResult] = await Promise.all([
@@ -104,14 +105,15 @@ export async function createTempLink(targetPath, targetPage = 0) {
       log('TempLink', `getPageSize failed, using defaults: ${e.message}`);
     }
 
-    // Place at 85% from top, horizontally centered
+    // Place at top of page, horizontally centered
     const linkWidth = 600;
     const linkHeight = 50;
     const linkLeft = Math.round((pageWidth - linkWidth) / 2);
-    const linkTop = Math.round(pageHeight * 0.85);
+    const linkTop = Math.round(pageHeight * 0.03);
 
-    const targetFilename = targetPath.split('/').pop().replace('.note', '');
-    const showText = `Tap to open: ${targetFilename}`;
+    const showText = taskName
+      ? `Tap to open: ${taskName}`
+      : `Tap to open: ${targetPath.split('/').pop().replace('.note', '')}`;
 
     const textLink = {
       destPath: targetPath,

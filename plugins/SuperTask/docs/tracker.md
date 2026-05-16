@@ -14,18 +14,20 @@
 | ID | Status | Title | Design doc | Notes |
 |----|--------|-------|------------|-------|
 | F-001 | Open | Inline task markers (T/ST) | `design-task-markers.md` | Embed marker into text content instead of separate T badge element. Solves grouping problem (badge doesn't move with content). Supports future subtask markers (ST). |
-| F-002 | Open | Text editability on convert | -- | Convert to Text inserts with `textEditable: 0`. User can't tap to edit. Need to decide if converted text should be editable. |
+| F-002 | Done | Text editability on convert | -- | Resolved by SDK behavior: text is editable via pen long-press or finger double-tap (Supernote built-in gestures). |
 | F-003 | Backlog | Subtask support | -- | `parent_id` in Todoist API. Subtask list in detail view. ST marker on note. |
 | F-004 | Backlog | Task dashboard / master note | -- | Create a note with all captured tasks as linked entries. APIs confirmed ready. |
 | F-005 | Backlog | Doc capture (PDF) | -- | PDF text selection, same flow as lasso handwriting. |
-| F-006 | Backlog | Offline mode | -- | Queue tasks locally, sync to Todoist when wifi available. |
+| F-006 | Backlog | Offline mode | `design-offline-mode.md` | Queue tasks locally, sync to Todoist when wifi available. |
 | F-007 | Done | Config persistence via RNFS | `design-settings.md`, `design-architecture.md` | JSON config file in MyStyle/SuperTask/ read/written via react-native-fs. Works from any screen (no note context needed). Confirmed on-device. |
 | F-008 | Done | Token obfuscation + auto-generation | `design-architecture.md` | XOR+base64 obfuscation replaces crypto-js (which broke on Hermes). Template config auto-generated on first launch. Plain text tokens auto-obfuscated on load. Info popup guides USB/BT/keyboard entry. |
 | F-009 | Done | Motion listener gesture capture | `../../docs/gesture-research.md` | Long-press finger detection on supertask:// links. Pre-scan on DOWN, mixed-input rejection (pen, multi-pointer). Confirmed on-device. |
 | F-010 | Open | Background processing with showPluginView | -- | Dismiss UI during API calls, reopen with results via `showPluginView()`. New in sn-plugin-lib 0.1.43. |
 | F-011 | Done | View Note from TaskDetail | -- | Button in "Captured from" section. Same note: closes plugin with page hint. Different note: tries openFilePath (opens file manager, not editor), falls back to showing path. |
 | F-012 | Done | Long-press gesture to open task from note | `../../docs/gesture-research.md` | Gesture detector in `gestureDetector.js`, registered at init (index.js). Pre-scans links on finger DOWN, navigates via `global.__superTaskNavigate` (re-show) or `getInitialScreen` (first mount). Single task API + parallel fetch. |
-| F-013 | In Progress | Cross-note navigation | -- | Temp link approach working (see B-002). Full path now stored in Todoist description + task registry. UX placement decision pending. |
+| F-013 | Done | Cross-note navigation | -- | Temp link at top-center of current page with task name. Auto-cleanup via `deleteElements` on next plugin open. Full path stored in Todoist description + task registry. |
+| F-014 | Backlog | Edge swipe to launch task home | -- | Swipe from edge (left, right, or bottom) opens SuperTask task home. Non-collision gesture for quick access without toolbar button. |
+| F-015 | Backlog | Quick lasso-add gesture | -- | Single finger hold + lasso motion to select and immediately open Add Task. Successor to quick-add overlay, saves taps by combining lasso and capture into one gesture. |
 
 ## Tasks
 
@@ -39,9 +41,6 @@
 
 | ID | Status | Title | Notes |
 |----|--------|-------|-------|
-| B-001 | Open | OCR sometimes reads "1" as "I" | `recognizeElements` returns "Test I" instead of "Test 1". May need post-processing or user always reviews. |
-| B-002 | In Progress | Cross-note navigation via temp link | `openFilePath()` dead end (opens file manager). Intent experiments (NoteOpener native module, 4 strategies) also dead end. **Working approach:** `insertTextLink` with `linkType:1` + `destPath` creates a tappable link that NOTE handles internally. Confirmed on-device: link created, tap navigates to target note. **Open UX question:** where to place the link. Options and constraints below. Cleanup via `deleteElements`/`removeNotePage` on next plugin open. `PluginFileAPI.deleteElements(path, page, [numInPage])` confirmed in SDK 0.1.43+. |
-| B-003 | Resolved | Motion listener doesn't fire from init/mount | Was a red herring -- events were firing but `log()` only collects in-memory (doesn't POST). Confirmed working from both index.js and App.tsx on sn-plugin-lib 0.1.43. |
 | B-004 | Open | Selected projects in settings isn't honored in the upcoming or today area or projects of supertask |
 | B-005 | Open | Renaming a note breaks task back-references | Both Todoist description (`Captured from: file.note p.N`) and task registry (`noteFile`) store the bare filename. Renaming the .note file breaks View Note navigation and This Page scan. **Approach:** reconciliation on plugin open -- if a registry noteFile is missing from disk, scan .note files for pages containing a supertask:// link matching the task ID (link elements survive renames). When found, update registry `noteFile` + patch Todoist task description via API. Short-circuit by checking same directory first. |
 

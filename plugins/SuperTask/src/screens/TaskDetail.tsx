@@ -91,7 +91,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
 
       setViewNoteStatus('Creating navigation link...');
 
-      const result = await createTempLink(targetPath, noteContext.pageNum - 1);
+      const result = await createTempLink(targetPath, noteContext.pageNum, task?.content);
 
       if (!result.success) {
         log('TaskDetail', `createTempLink failed: ${result.error}`);

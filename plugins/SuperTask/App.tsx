@@ -35,12 +35,15 @@ type ScreenEntry = {
 
 // Read the initial button ID set by index.js before React mounted
 function getInitialScreen(): ScreenEntry {
-  // Check for deep link from gesture detector (long-press on supertask:// link)
+  // Check for deep link from gesture detector
   const deepLink = global.__superTaskDeepLink;
   if (deepLink) {
     global.__superTaskDeepLink = null; // Consume it
     if (deepLink.action === 'view-task' && deepLink.taskId) {
       return {name: 'deep-link-loading', params: {taskId: deepLink.taskId}, id: 0};
+    }
+    if (deepLink.action === 'lasso-add') {
+      return {name: 'capture-lasso', id: 0};
     }
     if (deepLink.action === 'this-page') {
       return {name: 'task-home', params: {focusTab: 'today'}, id: 0};

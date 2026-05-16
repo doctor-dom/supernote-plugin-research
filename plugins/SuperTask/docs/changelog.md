@@ -7,6 +7,23 @@
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
 > - Session state: `PROGRESS.md` -- current session handoff notes
 
+## 2026-05-16 (session 19-20)
+
+### F-013: Cross-note navigation
+**Resolution:** Temp `insertTextLink` with `linkType:1` + `destPath` placed at top-center of current page (3% from top, horizontally centered). Shows task name in link text. Auto-cleanup via `deleteElements` on next plugin open, keyed by `numInPage`. Pending state persisted to `/MyStyle/SuperTask/pending-temp-link.json`. Full note path stored in Todoist description + task registry. Off-by-one fix: `pageNum` is 0-indexed, was incorrectly subtracting 1.
+
+### F-002: Text editability on convert
+**Resolution:** Not a plugin issue. Supernote's built-in text editing gestures (pen long-press, finger double-tap) work on converted text boxes. No plugin-side change needed.
+
+### B-001: OCR sometimes reads "1" as "I"
+**Resolution:** Closed as won't-fix. This is inherent to `recognizeElements` OCR accuracy based on handwriting. User reviews recognized text before submitting.
+
+### B-002: Cross-note navigation
+**Resolution:** Solved via temp link approach (see F-013). `openFilePath()` and Intent-based strategies were dead ends (all open file manager, not editor). `insertTextLink` with cross-note `destPath` is the working workaround. Gesture regression fixed: `ptrs > 1` mixed-input check was blocking all finger long presses because Supernote reports finger as `PTR_DOWN` with `ptrs=2` (device quirk). Fixed by checking pen `toolType` only; two-finger lasso caught by drift threshold.
+
+### B-003: Motion listener doesn't fire from init/mount
+**Resolution:** Moved to changelog (was already resolved in session 18).
+
 ## 2026-05-15 (session 18)
 
 ### F-012: Long-press gesture to open task from note

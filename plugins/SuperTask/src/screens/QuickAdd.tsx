@@ -559,8 +559,9 @@ const s = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'transparent',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    paddingTop: '10%',
   },
   panel: {
     width: PANEL_WIDTH,

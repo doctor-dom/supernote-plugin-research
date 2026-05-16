@@ -21,6 +21,7 @@ import {PluginManager} from 'sn-plugin-lib';
 import {loadConfig, saveConfig, getConfigSource, reloadConfig, wasTemplateGenerated} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
+import {reloadGestureConfig} from '../utils/gestureDetector';
 
 type Props = {
   onNavigate: (screen: string) => void;
@@ -49,6 +50,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [defaultScreen, setDefaultScreen] = useState('task-home');
   const [debugMode, setDebugMode] = useState(false);
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
+  const [lassoGestureInput, setLassoGestureInput] = useState('finger');
   const [showTokenInfo, setShowTokenInfo] = useState(false);
 
   useEffect(() => {
@@ -66,6 +68,7 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
+      if (config.lassoGestureInput) setLassoGestureInput(config.lassoGestureInput);
 
       setConfigSource(getConfigSource());
 
@@ -137,10 +140,12 @@ export default function Config({onNavigate, nav}: Props) {
       defaultScreen,
       debugMode,
       markAsTextFontSize,
+      lassoGestureInput,
     });
     setSaving(false);
     setSaveStatus(saved ? 'Saved to device' : 'Saved (session only)');
     setConfigSource(getConfigSource());
+    reloadGestureConfig();
     setTimeout(() => setSaveStatus(''), 2000);
   };
 
@@ -301,6 +306,21 @@ export default function Config({onNavigate, nav}: Props) {
       {/* ── Handwriting ── */}
       <View style={s.separator} />
       <Text style={s.groupTitle}>Handwriting</Text>
+
+      <Text style={s.sectionTitle}>Quick lasso-add gesture input</Text>
+      <View style={s.inlineRow}>
+        {[{key: 'finger', label: 'Finger'}, {key: 'pen', label: 'Pen'}].map(opt => (
+          <Pressable
+            key={opt.key}
+            style={[s.toggleBtn, lassoGestureInput === opt.key && s.toggleBtnActive]}
+            onPress={() => setLassoGestureInput(opt.key)}>
+            <Text style={[s.toggleText, lassoGestureInput === opt.key && s.toggleTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={s.hint}>Hold + drag to lasso and add task. Hold ~0.4s then draw selection.</Text>
 
       <Text style={s.sectionTitle}>Mark as text font size</Text>
       <View style={s.inlineRow}>
