@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 19 in progress.** Cross-note navigation via temp link confirmed working on-device. UX placement decision pending (see "What's next").
+**Session 20 in progress.** Cross-note nav complete. Quick lasso-add gesture (F-015) implemented but has bugs to fix (see session 20 below).
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -29,6 +29,56 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
+
+## Session 20 -- gesture fixes, lasso-add (F-015)
+
+Branch: `supertask-ui-redesign`
+
+### What's done
+
+1. **Cross-note nav complete** -- Temp link at 3% from top (percentage-based, scales across devices), shows task name in link text. Off-by-one fix (pageNum already 0-indexed). Cleanup via deleteElements confirmed on-device.
+
+2. **Gesture regression fixed** -- `ptrs > 1` mixed-input check was blocking ALL finger long presses because Supernote always reports finger as PTR_DOWN with ptrs=2 (device quirk, not pen hover). Fixed by checking pen `toolType` only; two-finger lasso is caught by drift threshold.
+
+3. **Quick lasso-add gesture (F-015) implemented** -- Hold finger/pen 400ms then drag to draw selection. Programmatic `lassoElements(bbox)` + opens QuickAdd. Configurable input (finger/pen) in Settings > Handwriting. Pre-check removed (element coords are EMR, not pixel).
+
+4. **Config UI** -- Radio button style for lasso input (Finger/Pen), matching existing preference patterns. `reloadGestureConfig()` called on save.
+
+5. **QuickAdd panel** -- Moved to 10% from top (flex-start + paddingTop) to avoid handwriting zone collision.
+
+6. **Tracker/changelog updated** -- B-001, B-002, F-002, F-013 closed. F-014 (edge swipe), F-015 (lasso-add) added. design-offline-mode.md placeholder created.
+
+7. **build.sh** -- Repo-root wrapper script fixes iCloud path space issue for builds.
+
+### Bugs to fix next session (F-015 lasso-add)
+
+**Bug 1: Two-finger lasso triggers pen gesture incorrectly**
+When doing native two-finger lasso (fingers anchor + pen draws), our detector picks up the PEN events as a new gesture. Sequence: fingers down → correctly cancelled → but then PEN DOWN starts fresh tracking → enters lasso mode → opens QuickAdd with empty selection. Fix: if multiple pointers (ptrs > 1) are active when PEN DOWN arrives, do NOT start gesture tracking. The lasso-add gesture must only activate with a single input (one finger or pen alone).
+
+**Bug 2: `_mixedInput` not checked in lasso UP path**
+Even when "FINGER activity during hold -- cancelling" fires during a pen lasso, the lasso UP code path still proceeds because it only checks `_lassoMode && _lassoBbox && toolType === _lassoToolType`, NOT `_mixedInput`. Fix: add `&& !_mixedInput` to the lasso UP condition in `onFingerUp`.
+
+**Bug 3: `lassoElements` result check is wrong**
+`{"result":false,"success":true}` means the API call succeeded but nothing was selected. Current check `if (!result?.success)` passes because `success` is true. Then QuickAdd opens to an empty selection showing "No elements selected." Fix: check `if (!result?.success || !result?.result)` before opening plugin.
+
+**Bug 4: Pen mode captures the lasso-drawing stroke (design issue)**
+In pen mode, the pen stroke that DRAWS the lasso selection area is written to the note itself. When `getLassoElements()` runs, it captures these strokes as part of the selection. OCR then fails because these aren't handwriting -- they're the selection border. The user's suggestion: after `lassoElements(rect)` succeeds, delete the pen stroke that formed the selection (the stroke drawn between the initial hold and finger UP). This requires identifying and removing the last-inserted stroke(s) from the lasso result, or doing an undo-like operation. Need to research: can we delete specific elements from an active lasso, or should we filter them out before OCR?
+
+**Bug 5: OCR fails on area with content ("0 strokes of 9 total")**
+`getLassoElements` returned 9 elements but `filter(el => el.type === 200)` found 0 strokes. All 9 elements were non-stroke types (links, text boxes). This happened in a region that visually had handwriting -- unclear why strokes weren't captured. Possibly the lasso rect was slightly off from the actual stroke positions. Edge case but worth investigating coordinate accuracy.
+
+### Confirmed on-device
+
+- Cross-note temp link creation + navigation + auto-cleanup: WORKING
+- Finger long-press on supertask:// link: WORKING (regression fixed)
+- Quick lasso-add gesture detection (finger mode): WORKING (enters lasso mode, bbox computed)
+- Quick lasso-add gesture detection (pen mode): PARTIALLY WORKING (detects but has bugs above)
+- Settings radio buttons for lasso input: WORKING
+- QuickAdd panel positioning at top: WORKING
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 20, has bugs 1-5 above
 
 ## Session 19 -- cross-note navigation (B-002)
 

@@ -380,38 +380,9 @@ async function handleLassoAdd(bbox) {
   log('Gesture', `lassoElements rect: l=${rect.left} t=${rect.top} r=${rect.right} b=${rect.bottom}`);
 
   try {
-    // Pre-check: verify the region contains capturable content (strokes,
-    // text boxes, or other elements). Skip only if completely empty.
-    const [fpResult, pnResult] = await Promise.all([
-      PluginCommAPI.getCurrentFilePath(),
-      PluginCommAPI.getCurrentPageNum(),
-    ]);
-    const filePath = fpResult?.result;
-    const pageNum = pnResult?.result ?? 0;
-
-    if (filePath) {
-      const elemResult = await PluginFileAPI.getElements(pageNum, filePath);
-      if (elemResult?.success && elemResult.result) {
-        const inRegion = elemResult.result.filter(el => {
-          // Check if element overlaps with the lasso bbox
-          if (el.X == null || el.Y == null) return false;
-          const elRight = el.X + (el.width || 0);
-          const elBottom = el.Y + (el.height || 0);
-          return el.X < rect.right && elRight > rect.left &&
-                 el.Y < rect.bottom && elBottom > rect.top;
-        });
-
-        recycleAll(elemResult.result);
-
-        if (inRegion.length === 0) {
-          log('Gesture', 'No elements in lasso region. Skipping.');
-          return;
-        }
-        log('Gesture', `Pre-check: ${inRegion.length} elements in region (types: ${[...new Set(inRegion.map(e => e.type))]})`);
-      }
-    }
-
     // Programmatically create the lasso selection
+    // (No pre-check: element coords are in EMR space, not pixel space.
+    // Let lassoElements determine if content exists in the region.)
     const result = await PluginCommAPI.lassoElements(rect);
     log('Gesture', `lassoElements result: ${JSON.stringify(result)}`);
 

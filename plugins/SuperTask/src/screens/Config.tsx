@@ -307,20 +307,18 @@ export default function Config({onNavigate, nav}: Props) {
       <View style={s.separator} />
       <Text style={s.groupTitle}>Handwriting</Text>
 
-      <Text style={s.sectionTitle}>Quick lasso-add gesture input</Text>
+      <Text style={s.sectionTitle}>Quick lasso-add input</Text>
       <View style={s.inlineRow}>
-        {[{key: 'finger', label: 'Finger'}, {key: 'pen', label: 'Pen'}].map(opt => (
-          <Pressable
-            key={opt.key}
-            style={[s.toggleBtn, lassoGestureInput === opt.key && s.toggleBtnActive]}
-            onPress={() => setLassoGestureInput(opt.key)}>
-            <Text style={[s.toggleText, lassoGestureInput === opt.key && s.toggleTextActive]}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        ))}
+        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('finger')}>
+          <Text style={s.radio}>{lassoGestureInput === 'finger' ? '(*)' : '( )'}</Text>
+          <Text style={s.radioLabel}>Finger</Text>
+        </Pressable>
+        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('pen')}>
+          <Text style={s.radio}>{lassoGestureInput === 'pen' ? '(*)' : '( )'}</Text>
+          <Text style={s.radioLabel}>Pen</Text>
+        </Pressable>
       </View>
-      <Text style={s.hint}>Hold + drag to lasso and add task. Hold ~0.4s then draw selection.</Text>
+      <Text style={s.hint}>  Hold ~0.4s then drag to select and add task</Text>
 
       <Text style={s.sectionTitle}>Mark as text font size</Text>
       <View style={s.inlineRow}>
