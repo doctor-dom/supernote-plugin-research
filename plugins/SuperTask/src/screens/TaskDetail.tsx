@@ -11,7 +11,6 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {Linking} from 'react-native';
 import {PluginCommAPI, PluginManager, FileUtils} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todoist';
@@ -75,42 +74,26 @@ export default function TaskDetail({nav, task, projects}: Props) {
         return;
       }
 
-      // Different note -- try openFilePath, then Linking.openURL, then show path
+      // Different note -- close plugin first, then openFilePath
       log('TaskDetail', `Different note. Current: ${currentFile}, Target: ${noteContext.noteFile}`);
 
       // Build full path -- noteFile is just the filename, need the directory
-      // Try to derive from currentPath by replacing the filename
       const dir = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
       const targetPath = dir + noteContext.noteFile;
 
-      // Attempt 1: openFilePath
-      try {
-        log('TaskDetail', `Trying openFilePath(${targetPath})`);
-        const result = await FileUtils.openFilePath(targetPath);
-        if (result) {
-          setViewNoteStatus(`Opening... page ${noteContext.pageNum}`);
-          log('TaskDetail', `openFilePath succeeded: ${result}`);
-          return;
-        }
-      } catch (e: any) {
-        log('TaskDetail', `openFilePath failed: ${e.message}`);
-      }
+      log('TaskDetail', `Closing plugin, then openFilePath(${targetPath})`);
+      setViewNoteStatus(`Opening ${noteContext.noteFile}...`);
 
-      // Attempt 2: Linking.openURL
-      try {
-        const url = `file://${targetPath}`;
-        log('TaskDetail', `Trying Linking.openURL(${url})`);
-        await Linking.openURL(url);
-        setViewNoteStatus(`Opening... page ${noteContext.pageNum}`);
-        log('TaskDetail', 'Linking.openURL succeeded');
-        return;
-      } catch (e: any) {
-        log('TaskDetail', `Linking.openURL failed: ${e.message}`);
-      }
-
-      // Fallback: show the path for manual navigation
-      setViewNoteStatus(`${noteContext.noteFile} p.${noteContext.pageNum}`);
-      log('TaskDetail', 'All navigation attempts failed, showing path');
+      // Close plugin view first -- openFilePath dispatches an ACTION_VIEW intent
+      // via FileManagerMainActivity with only_open_file extra. The plugin view
+      // must be dismissed before the intent fires or the file manager opens
+      // behind/alongside the plugin instead of navigating to the note.
+      PluginManager.closePluginView();
+      setTimeout(() => {
+        FileUtils.openFilePath(targetPath)
+          .then(result => log('TaskDetail', `openFilePath result: ${result}`))
+          .catch(e => log('TaskDetail', `openFilePath error: ${e.message}`));
+      }, 200);
     } catch (e: any) {
       logError('TaskDetail', e);
       setViewNoteStatus(`Error: ${e.message}`);

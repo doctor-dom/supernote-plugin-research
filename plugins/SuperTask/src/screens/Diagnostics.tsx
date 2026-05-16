@@ -16,6 +16,7 @@ import {
   NativeUIUtils,
 } from 'sn-plugin-lib';
 import {log} from '../utils/debug';
+import {openNote, STRATEGIES} from '../utils/noteOpener';
 
 type Props = {
   nav: {pop: () => void};
@@ -485,6 +486,30 @@ export default function Diagnostics({nav}: Props) {
     }
   };
 
+  const testIntentStrategy = async (strategyId: number) => {
+    const path = await getNotePath();
+    if (!path) {
+      setNavResult(`Intent #${strategyId}: No note path available`);
+      return;
+    }
+    // Use a different note for the test -- find another .note in the same directory
+    const dir = path.substring(0, path.lastIndexOf('/') + 1);
+    const strategy = STRATEGIES.find(s => s.id === strategyId);
+    setNavResult(`Intent #${strategyId} (${strategy?.label}): trying...`);
+    log('NavTest', `Intent strategy ${strategyId} (${strategy?.label}) path=${path}`);
+
+    // Close plugin first, then fire intent
+    PluginManager.closePluginView();
+    setTimeout(async () => {
+      try {
+        const result = await openNote(path, strategyId);
+        log('NavTest', `Intent #${strategyId} result: ${result}`);
+      } catch (e: any) {
+        log('NavTest', `Intent #${strategyId} ERROR: ${e.message}`);
+      }
+    }, 300);
+  };
+
   const testReplaceElements = async (currentPath: string, page: number) => {
     const name = 'replaceElements';
     update(name, 'running', '');
@@ -583,6 +608,14 @@ export default function Diagnostics({nav}: Props) {
         ) : (
           <Text style={styles.navHint}>Test APIs for opening notes. Open a note with supertask links first.</Text>
         )}
+        <Text style={[styles.navTitle, {marginTop: 8}]}>Intent Strategies (closes plugin)</Text>
+        <View style={styles.navButtons}>
+          {STRATEGIES.map(s => (
+            <Pressable key={s.id} style={styles.navBtn} onPress={() => testIntentStrategy(s.id)}>
+              <Text style={styles.navBtnText}>{s.id}: {s.label}</Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
       {/* Motion Listener Test */}

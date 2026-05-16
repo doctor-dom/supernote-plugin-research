@@ -32,11 +32,15 @@
 | ID | Status | Title | Design doc | Notes |
 |----|--------|-------|------------|-------|
 | T-001 | Done | Settings page redesign | `design-settings.md` | Compact horizontal layout for e-ink. Connections tab validates API tokens from MyStyle config. Preferences tab uses inline toggles, button rows, and checkbox grids. |
+| T-002 | Open | Audit undocumented SDK native modules | -- | `RTNFileModule.java` revealed `openFilePath` dispatches `ACTION_VIEW` with `only_open_file` extra -- not in TS types or docs. Systematically read native Java sources in `android/src/main/java/` for all TurboModules (`RTNFileUtils`, `NativePluginAPI`, `NativePluginManager`, `FileSelector`, `NativeUIUtils`) to find other hidden capabilities. Check Intent extras, undocumented params, internal methods not exposed to JS. |
 
 ## Bugs
 
 | ID | Status | Title | Notes |
 |----|--------|-------|-------|
 | B-001 | Open | OCR sometimes reads "1" as "I" | `recognizeElements` returns "Test I" instead of "Test 1". May need post-processing or user always reviews. |
-| B-002 | Open | Cross-note navigation opens file manager, not editor | `openFilePath()` with a .note path returns true but opens the Supernote file manager, not the note in the editor. `Linking.openURL('file://...')` fails (Android blocks file:// URIs). No known SDK method opens a .note file in the editor. View Note falls back to showing the path for manual navigation. |
+| B-002 | Testing | Cross-note navigation opens file manager, not editor | Native Java source (`RTNFileModule.java`) shows `openFilePath` dispatches `ACTION_VIEW` intent with `only_open_file` extra to `FileManagerMainActivity`. Previous attempts called it with plugin view still open. Fix: call `closePluginView()` first, then `openFilePath()` after 200ms delay. Needs on-device test. |
 | B-003 | Resolved | Motion listener doesn't fire from init/mount | Was a red herring -- events were firing but `log()` only collects in-memory (doesn't POST). Confirmed working from both index.js and App.tsx on sn-plugin-lib 0.1.43. |
+| B-004 | Open | Selected projects in settings isn't honored in the upcoming or today area or projects of supertask |
+| B-005 | Open | Renaming a note breaks task back-references | Both Todoist description (`Captured from: file.note p.N`) and task registry (`noteFile`) store the bare filename. Renaming the .note file breaks View Note navigation and This Page scan. **Approach:** reconciliation on plugin open -- if a registry noteFile is missing from disk, scan .note files for pages containing a supertask:// link matching the task ID (link elements survive renames). When found, update registry `noteFile` + patch Todoist task description via API. Short-circuit by checking same directory first. |
+
