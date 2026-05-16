@@ -11,8 +11,9 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginCommAPI, PluginManager, FileUtils} from 'sn-plugin-lib';
+import {PluginCommAPI, PluginManager} from 'sn-plugin-lib';
 import {loadConfig} from '../utils/config';
+import {createTempLink} from '../utils/tempLinkNav';
 import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
 import PriorityPicker from '../components/PriorityPicker';
@@ -32,14 +33,21 @@ type Props = {
   projects: any[];
 };
 
-// Parse note context from description: "[SuperTask] Captured from: {file} p.{N}"
-function parseNoteContext(desc: string): {noteFile: string; pageNum: number; userDescription: string} | null {
+// Parse note context from description: "[SuperTask] Captured from: {path} p.{N}"
+// Supports both full path (/storage/.../file.note) and legacy filename-only (file.note)
+function parseNoteContext(desc: string): {notePath: string; noteFile: string; pageNum: number; userDescription: string} | null {
   if (!desc) return null;
   const match = desc.match(/\[SuperTask\] Captured from: (.+\.note) p\.(\d+)/);
   if (!match) return null;
-  // Strip the metadata block from the user-visible description
   const userDescription = desc.replace(/\n*---\n\[SuperTask\] Captured from: .+$/, '').trim();
-  return {noteFile: match[1], pageNum: parseInt(match[2], 10), userDescription};
+  const raw = match[1];
+  const isFullPath = raw.startsWith('/');
+  return {
+    notePath: isFullPath ? raw : '',  // empty = legacy, must resolve
+    noteFile: raw.split('/').pop() || raw,
+    pageNum: parseInt(match[2], 10),
+    userDescription,
+  };
 }
 
 export default function TaskDetail({nav, task, projects}: Props) {
@@ -74,26 +82,26 @@ export default function TaskDetail({nav, task, projects}: Props) {
         return;
       }
 
-      // Different note -- close plugin first, then openFilePath
+      // Different note -- create temp link, close plugin so user can tap it
       log('TaskDetail', `Different note. Current: ${currentFile}, Target: ${noteContext.noteFile}`);
 
-      // Build full path -- noteFile is just the filename, need the directory
-      const dir = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
-      const targetPath = dir + noteContext.noteFile;
+      // Use full path if available, otherwise guess same directory (legacy tasks)
+      const targetPath = noteContext.notePath
+        || currentPath.substring(0, currentPath.lastIndexOf('/') + 1) + noteContext.noteFile;
 
-      log('TaskDetail', `Closing plugin, then openFilePath(${targetPath})`);
-      setViewNoteStatus(`Opening ${noteContext.noteFile}...`);
+      setViewNoteStatus('Creating navigation page...');
 
-      // Close plugin view first -- openFilePath dispatches an ACTION_VIEW intent
-      // via FileManagerMainActivity with only_open_file extra. The plugin view
-      // must be dismissed before the intent fires or the file manager opens
-      // behind/alongside the plugin instead of navigating to the note.
-      PluginManager.closePluginView();
-      setTimeout(() => {
-        FileUtils.openFilePath(targetPath)
-          .then(result => log('TaskDetail', `openFilePath result: ${result}`))
-          .catch(e => log('TaskDetail', `openFilePath error: ${e.message}`));
-      }, 200);
+      const result = await createTempLink(targetPath, noteContext.pageNum - 1);
+
+      if (!result.success) {
+        log('TaskDetail', `createTempLink failed: ${result.error}`);
+        setViewNoteStatus(`Error: ${result.error}`);
+        return;
+      }
+
+      setViewNoteStatus('Go to next page and tap the link');
+      log('TaskDetail', `Temp nav page created at p.${result.tempPage}, closing plugin`);
+      setTimeout(() => PluginManager.closePluginView(), 1500);
     } catch (e: any) {
       logError('TaskDetail', e);
       setViewNoteStatus(`Error: ${e.message}`);
@@ -127,7 +135,8 @@ export default function TaskDetail({nav, task, projects}: Props) {
       // Re-append note context metadata if it existed
       let fullDescription = description.trim();
       if (noteContext) {
-        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteContext.noteFile} p.${noteContext.pageNum}`;
+        const pathOrFile = noteContext.notePath || noteContext.noteFile;
+        const noteRef = `\n\n---\n[SuperTask] Captured from: ${pathOrFile} p.${noteContext.pageNum}`;
         fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
       }
 

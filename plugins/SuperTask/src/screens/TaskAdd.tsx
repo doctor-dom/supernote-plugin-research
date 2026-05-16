@@ -94,8 +94,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       // Build description with note context back-reference
       let fullDescription = description.trim();
       if (captureMode === 'lasso' && noteContext) {
-        const noteFile = noteContext.filePath.split('/').pop() || '';
-        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteFile} p.${noteContext.pageNum}`;
+        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteContext.filePath} p.${noteContext.pageNum}`;
         fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
       }
 
@@ -130,10 +129,10 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         }
 
         // Write to local task registry
-        const noteFile = noteContext.filePath.split('/').pop() || '';
         await registryAddTask(task?.id, {
           content: content.trim(),
-          noteFile,
+          noteFile: noteContext.filePath.split('/').pop() || '',
+          notePath: noteContext.filePath,
           pageNum: noteContext.pageNum,
         });
       }

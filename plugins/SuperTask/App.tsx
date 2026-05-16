@@ -25,6 +25,7 @@ import {initGestureDetector} from './src/utils/gestureDetector';
 import {loadConfig} from './src/utils/config';
 import {getTask as getRegistryTask} from './src/utils/taskRegistry';
 import {setConfigLoader, getTask as getApiTask, getProjects} from './src/api/todoist';
+import {cleanupTempLink} from './src/utils/tempLinkNav';
 
 type ScreenEntry = {
   name: string;
@@ -166,11 +167,15 @@ function App(): React.JSX.Element {
     // call init here as a guard in case index.js init was too early.
     initGestureDetector();
 
+    // Clean up any temp navigation link left from a previous cross-note jump
+    cleanupTempLink().catch(e => log('App', `Temp link cleanup error: ${e.message}`));
+
     // Expose a navigate callback so the gesture detector can route
     // directly when the App is already mounted (re-show via showPluginView).
     // For first-mount, getInitialScreen() reads the global instead.
     global.__superTaskNavigate = (screen: string, params?: Record<string, any>) => {
       log('App', `__superTaskNavigate: ${screen} ${params ? JSON.stringify(params) : ''}`);
+      cleanupTempLink().catch(e => log('App', `Temp link cleanup error: ${e.message}`));
       resetToRef.current?.(screen, params);
     };
 
@@ -192,6 +197,8 @@ function App(): React.JSX.Element {
         const raw = event?.id;
         const id = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
         log('App', `BUTTON pressed raw=${JSON.stringify(raw)} id=${id} (listener)`);
+        // Clean up temp nav page on every plugin re-show
+        cleanupTempLink().catch(e => log('App', `Temp link cleanup error: ${e.message}`));
         if (id === 200) {
           resetToRef.current?.('capture-lasso');
         } else if (id === 300) {

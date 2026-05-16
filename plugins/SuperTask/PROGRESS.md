@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 18 complete.** Bidirectional linking fully working: long-press finger gesture on supertask:// link opens task detail. Cross-note navigation still opens file manager (B-002).
+**Session 19 in progress.** Cross-note navigation via temp link confirmed working on-device. UX placement decision pending (see "What's next").
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -29,6 +29,64 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
+
+## Session 19 -- cross-note navigation (B-002)
+
+Branch: `phase3-harmony`
+
+### What's done
+
+1. **Temp link approach confirmed** -- `insertTextLink` with `linkType:1` + `destPath` (full path to target .note) creates a tappable link that the NOTE app handles internally. No intents, no native modules. Confirmed on-device: link appears, tap navigates to target note.
+
+2. **Full path storage** -- Task description metadata and task registry now store the full note path (`/storage/emulated/0/Note/Plugin Dev/file.note`) instead of just the filename. Fixes the "destination file does not exist" error when notes are in subdirectories. `parseNoteContext` in TaskDetail supports both legacy (filename-only) and new (full path) formats.
+
+3. **Cleanup infrastructure** -- `tempLinkNav.js` utility with `createTempLink()` and `cleanupTempLink()`. Cleanup triggers on: first mount, button re-show, and gesture re-show. Uses `deleteElements` or `removeNotePage` depending on approach. Pending state persisted to `/MyStyle/SuperTask/pending-temp-link.json`.
+
+4. **NoteOpener native module reverted** -- FileProvider in AndroidManifest was crashing plugin registration. Intent-based strategies confirmed dead end (all open file manager, not editor). Native module code reverted to committed state.
+
+5. **New SDK API noted** -- `PluginFileAPI.deleteElements(notePath, page, numsInPage[])` available in sn-plugin-lib 0.1.43+. Simpler than getElements+filter+replaceElements.
+
+### What's confirmed on-device
+
+- `insertTextLink` with cross-note destPath: SUCCESS (link renders, tap navigates)
+- `deleteElements` for cleanup: NOT YET TESTED (cleanup didn't trigger in test due to re-show vs mount issue, now fixed)
+- `removeNotePage` for temp page cleanup: NOT YET TESTED
+- `createElement(600)` + `insertElements` for link on new page: NOT YET TESTED
+
+### What's next -- UX placement decision
+
+The link works. The question is where to put it so it's visible without disrupting the user's note content.
+
+**Option A: Current page, prominent overlay-style**
+- Pros: No extra steps, link is immediately tappable after plugin closes
+- Cons: Overlaps existing handwriting/content on busy pages. No background/fill capability in SDK to blank out area behind it. `textFrameFillColor` exists in native model but is not exposed to JS.
+- Implementation: Large centered `insertTextLink` + `insertText` for explanation. Cleanup via `deleteElements`.
+
+**Option B: New page after current**
+- Pros: Clean blank canvas, no content overlap, prominent centered link with explanatory text
+- Cons: User must swipe to next page manually. No `goToPage` API exists. Message says "Swipe to next page" but adds friction.
+- Implementation: `insertNotePage` + `createElement(600)` + `insertElements` on new page. Cleanup via `removeNotePage`.
+
+**Option C: Wait for Ratta to add a direct navigation API**
+- Likely coming given `destFileId`/`destPageId` fields exist in native Link model (commented out in serialization). For now, temp link is the workaround.
+
+**SDK constraints confirmed:**
+- No `goToPage` / page navigation API
+- No fill/background on elements (geometry has pen color only, textFrameFillColor not exposed)
+- `insertImage(pngPath)` exists but doesn't accept positioning coordinates
+- `insertTextLink` / `insertText` only work on current in-memory page (PluginNoteAPI)
+- `insertElements` (PluginFileAPI) can target any page but requires manually constructed Element objects
+
+### Current code state
+
+- `src/utils/tempLinkNav.js` -- currently implements Option B (new page). Has both approaches coded; can switch to Option A by reverting to the earlier version in git.
+- `App.tsx` -- imports `cleanupTempLink`, runs on mount + button re-show + gesture re-show
+- `TaskDetail.tsx` -- `handleViewNote` calls `createTempLink` for cross-note, uses full path from `noteContext.notePath`
+- `src/screens/QuickAdd.tsx` + `TaskAdd.tsx` -- store full path in description + registry
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 19, Option B (new page) build. createElement(600) approach untested on device.
 
 ## Session 18 -- deep link routing and gesture hardening
 

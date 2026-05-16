@@ -233,8 +233,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       let fullDescription = description.trim();
       const nc = noteContextRef.current;
       if (nc) {
-        const noteFile = nc.filePath.split('/').pop() || '';
-        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteFile} p.${nc.pageNum}`;
+        const noteRef = `\n\n---\n[SuperTask] Captured from: ${nc.filePath} p.${nc.pageNum}`;
         fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
       }
 
@@ -249,10 +248,10 @@ export default function QuickAdd({nav}: {nav: Nav}) {
 
       // Write to local task registry
       if (nc && task?.id) {
-        const noteFile = nc.filePath.split('/').pop() || '';
         await registryAddTask(task.id, {
           content: content.trim(),
-          noteFile,
+          noteFile: nc.filePath.split('/').pop() || '',
+          notePath: nc.filePath,
           pageNum: nc.pageNum,
         });
       }
