@@ -33,6 +33,7 @@
 |----|--------|-------|------------|-------|
 | T-001 | Done | Settings page redesign | `design-settings.md` | Compact horizontal layout for e-ink. Connections tab validates API tokens from MyStyle config. Preferences tab uses inline toggles, button rows, and checkbox grids. |
 | T-002 | Open | Audit undocumented SDK native modules | -- | `RTNFileModule.java` revealed `openFilePath` dispatches `ACTION_VIEW` with `only_open_file` extra -- not in TS types or docs. Systematically read native Java sources in `android/src/main/java/` for all TurboModules (`RTNFileUtils`, `NativePluginAPI`, `NativePluginManager`, `FileSelector`, `NativeUIUtils`) to find other hidden capabilities. Check Intent extras, undocumented params, internal methods not exposed to JS. |
+| T-003 | Open | Write architecture docs, user README, and Ratta feedback | -- | Three deliverables: (1) Architecture doc covering SuperTask's design (temp link nav, gesture detection, task registry, bidirectional linking, offline-first patterns). (2) User-facing README explaining installation, usage, and limitations. (3) Developer feedback for Ratta: API gaps discovered (no goToPage, no openNote, no element fill/background, no writeFile), workarounds used, what would be most helpful (direct note navigation, page switching, element background fill, background task execution). Requires full codebase review to write accurately. |
 
 ## Bugs
 
