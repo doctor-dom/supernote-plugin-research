@@ -213,10 +213,24 @@ export default function TaskDetail({nav, task, projects}: Props) {
     <View style={styles.wrapper}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <Pressable onPress={() => { log('TaskDetail', 'BACK pressed'); nav.pop(); }}>
-          <Text style={styles.backText}>{'< Back'}</Text>
+        <Pressable onPress={() => {
+          if (nav.canGoBack) {
+            log('TaskDetail', 'BACK pressed');
+            nav.pop();
+          } else {
+            log('TaskDetail', 'BACK pressed (deep link) -- closing plugin');
+            PluginManager.closePluginView();
+          }
+        }}>
+          <Text style={styles.backText}>{nav.canGoBack ? '< Back' : '< Note'}</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Edit Task</Text>
+        {!nav.canGoBack ? (
+          <Pressable onPress={() => { log('TaskDetail', 'All Tasks pressed'); nav.resetTo('task-home'); }}>
+            <Text style={styles.headerTitleLink}>All Tasks</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.headerTitle}>Edit Task</Text>
+        )}
         <Pressable onPress={handleDelete}>
           <Text style={styles.deleteText}>
             {confirmDelete ? 'Confirm Delete' : 'Delete'}
@@ -355,6 +369,14 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#000000',
+  },
+  headerTitleLink: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000000',
+    textDecorationLine: 'underline',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
   deleteText: {
     fontSize: 15,

@@ -63,6 +63,19 @@ export function initGestureDetector() {
       }
 
       if (!_enabled) return;
+
+      // If pen activity or multi-pointer detected during a finger hold,
+      // cancel -- this is a gesture erase, two-finger lasso, etc.
+      if (_fingerDown) {
+        const ptrs = msg.pointerCount ?? msg.pointers?.length ?? 1;
+        if (msg.toolType === 2 || ptrs > 1) {
+          if (!_mixedInput) {
+            log('Gesture', `Mixed input during hold (tool=${tool} ptrs=${ptrs}) -- cancelling`);
+            _mixedInput = true;
+          }
+        }
+      }
+
       // Only handle finger events (toolType 1)
       if (msg.toolType !== 1) return;
 
@@ -114,10 +127,16 @@ export function setGestureEnabled(enabled) {
 // duration -- per gesture-research.md, long press has ZERO MOVE events.
 
 let _driftExceeded = false;  // Track if finger moved too much
+let _mixedInput = false;     // Track if pen/multi-pointer occurred during hold
+let _linkScanPromise = null; // Async pre-scan started on finger DOWN
 
 function onFingerDown(x, y) {
   _fingerDown = {x, y, time: Date.now()};
   _driftExceeded = false;
+  _mixedInput = false;
+  // Start scanning for links immediately -- runs during the hold so
+  // results are ready by the time the finger lifts.
+  _linkScanPromise = preScanLinks(x, y);
   log('Gesture', `DOWN at (${Math.round(x)},${Math.round(y)})`);
 }
 
@@ -139,12 +158,12 @@ function onFingerUp(x, y) {
   if (!_fingerDown) return;
 
   const held = Date.now() - _fingerDown.time;
-  log('Gesture', `UP at (${Math.round(x)},${Math.round(y)}) after ${held}ms drift=${_driftExceeded}`);
+  log('Gesture', `UP at (${Math.round(x)},${Math.round(y)}) after ${held}ms drift=${_driftExceeded} mixed=${_mixedInput}`);
 
-  // Long press: held >= threshold, no excessive drift
-  if (held >= LONG_PRESS_MS && !_driftExceeded) {
+  // Long press: held >= threshold, no excessive drift, finger-only (no pen/multi-touch)
+  if (held >= LONG_PRESS_MS && !_driftExceeded && !_mixedInput) {
     log('Gesture', `LONG PRESS DETECTED at (${Math.round(_fingerDown.x)},${Math.round(_fingerDown.y)}) held ${held}ms`);
-    handleLongPress(_fingerDown.x, _fingerDown.y);
+    handleLongPress();
   }
 
   _fingerDown = null;
@@ -154,15 +173,14 @@ function onFingerUp(x, y) {
 function cancelLongPress() {
   _fingerDown = null;
   _driftExceeded = false;
+  _mixedInput = false;
+  _linkScanPromise = null;
 }
 
-// --- Long press action ---
+// --- Pre-scan: runs on finger DOWN, overlapping with hold time ---
 
-async function handleLongPress(x, y) {
-  cancelLongPress(); // Prevent re-entry
-
+async function preScanLinks(x, y) {
   try {
-    // Get current note context
     const [fpResult, pnResult] = await Promise.all([
       PluginCommAPI.getCurrentFilePath(),
       PluginCommAPI.getCurrentPageNum(),
@@ -171,76 +189,83 @@ async function handleLongPress(x, y) {
     const pageNum = pnResult?.result ?? 0;
 
     if (!filePath) {
-      log('Gesture', 'No active note, ignoring long press');
-      return;
+      log('Gesture', 'Pre-scan: no active note');
+      return null;
     }
 
-    log('Gesture', `Scanning page ${pageNum} of ${filePath} for links at (${Math.round(x)}, ${Math.round(y)})`);
+    log('Gesture', `Pre-scan: page ${pageNum} of ${filePath} at (${Math.round(x)},${Math.round(y)})`);
 
-    // Get all elements on the page
     const elemResult = await PluginFileAPI.getElements(pageNum, filePath);
     if (!elemResult?.success || !elemResult.result) {
-      log('Gesture', `getElements failed: ${JSON.stringify(elemResult)}`);
-      return;
+      log('Gesture', `Pre-scan: getElements failed`);
+      return null;
     }
 
     const elements = elemResult.result;
-
-    // Find supertask:// link elements
     const stLinks = elements.filter(
       (el) => el.type === 600 && el.link?.destPath?.startsWith('supertask://task/')
     );
 
     if (stLinks.length === 0) {
-      log('Gesture', 'No supertask links on this page');
+      log('Gesture', 'Pre-scan: no supertask links on page');
       recycleAll(elements);
-      return;
+      return null;
     }
 
-    log('Gesture', `Found ${stLinks.length} supertask links, hit-testing...`);
+    log('Gesture', `Pre-scan: ${stLinks.length} links, hit-testing...`);
 
-    // Try to find the link at the touch point
-    let matchedLink = null;
-
+    // Hit-test against touch point
     for (const el of stLinks) {
       const link = el.link;
-      // Check if link has usable bounds
       if (link.width > 0 && link.height > 0) {
         const left = link.X - HIT_PADDING_PX;
         const top = link.Y - HIT_PADDING_PX;
         const right = link.X + link.width + HIT_PADDING_PX;
         const bottom = link.Y + link.height + HIT_PADDING_PX;
 
-        log('Gesture', `Link bounds: (${link.X},${link.Y}) ${link.width}x${link.height}, touch: (${Math.round(x)},${Math.round(y)})`);
-
         if (x >= left && x <= right && y >= top && y <= bottom) {
-          matchedLink = el;
-          break;
+          const taskId = link.destPath.replace('supertask://task/', '');
+          log('Gesture', `Pre-scan: hit link -> task ${taskId}`);
+          recycleAll(elements);
+          return {taskId};
         }
       }
     }
 
-    // Fallback: if no hit-test match (bounds may be 0 for stroke links)
-    if (!matchedLink) {
-      if (stLinks.length === 1) {
-        // Only one link on the page -- assume that's the target
-        matchedLink = stLinks[0];
-        log('Gesture', 'No hit-test match, using only supertask link on page');
-      } else {
-        log('Gesture', `No hit-test match among ${stLinks.length} links`);
-        // Multiple links, can't determine which one -- open to This Page tab
-        global.__superTaskDeepLink = {action: 'this-page'};
-        recycleAll(elements);
-        openPluginView();
-        return;
-      }
+    // Fallback: single link on page with no bounds match
+    if (stLinks.length === 1) {
+      const taskId = stLinks[0].link.destPath.replace('supertask://task/', '');
+      log('Gesture', `Pre-scan: no bounds hit, using only link -> task ${taskId}`);
+      recycleAll(elements);
+      return {taskId};
     }
 
-    // Extract task ID from the matched link
-    const taskId = matchedLink.link.destPath.replace('supertask://task/', '');
-    log('Gesture', `Matched task: ${taskId}`);
-
+    log('Gesture', `Pre-scan: no hit among ${stLinks.length} links`);
     recycleAll(elements);
+    return null;
+  } catch (e) {
+    log('Gesture', `Pre-scan error: ${e.message}`);
+    return null;
+  }
+}
+
+// --- Long press action ---
+
+async function handleLongPress() {
+  const scanPromise = _linkScanPromise;
+  cancelLongPress(); // Prevent re-entry
+
+  if (!scanPromise) return;
+
+  try {
+    const result = await scanPromise;
+    if (!result) {
+      log('Gesture', 'No link at touch point, ignoring');
+      return;
+    }
+
+    const {taskId} = result;
+    log('Gesture', `Matched task: ${taskId}`);
 
     // Set deep link and open the plugin UI
     global.__superTaskDeepLink = {taskId, action: 'view-task'};
@@ -261,6 +286,20 @@ function recycleAll(elements) {
 
 async function openPluginView() {
   try {
+    // If App is already mounted, navigate directly via the exposed callback.
+    // This handles the re-show case where getInitialScreen() won't re-run.
+    const deepLink = global.__superTaskDeepLink;
+    if (deepLink && global.__superTaskNavigate) {
+      global.__superTaskDeepLink = null;
+      log('Gesture', `Navigating via __superTaskNavigate: ${deepLink.action} taskId=${deepLink.taskId}`);
+      if (deepLink.action === 'view-task' && deepLink.taskId) {
+        global.__superTaskNavigate('deep-link-loading', {taskId: deepLink.taskId});
+      } else if (deepLink.action === 'this-page') {
+        global.__superTaskNavigate('task-home', {focusTab: 'today'});
+      }
+    }
+    // If App isn't mounted yet, getInitialScreen() reads the global on mount.
+
     log('Gesture', 'Calling showPluginView()...');
     const result = await PluginManager.showPluginView();
     log('Gesture', `showPluginView result: ${result}`);

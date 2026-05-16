@@ -24,7 +24,7 @@ import {log, logError, getEntries, setListener, exportLog, setDebugMode} from '.
 import {initGestureDetector} from './src/utils/gestureDetector';
 import {loadConfig} from './src/utils/config';
 import {getTask as getRegistryTask} from './src/utils/taskRegistry';
-import {setConfigLoader, getTasks, getProjects} from './src/api/todoist';
+import {setConfigLoader, getTask as getApiTask, getProjects} from './src/api/todoist';
 
 type ScreenEntry = {
   name: string;
@@ -68,25 +68,24 @@ function DeepLinkLoader({taskId, nav}: {taskId: string; nav: any}) {
       setConfigLoader(loadConfig);
 
       try {
-        // Fetch projects first (needed by TaskDetail)
-        let projects: any[] = [];
-        try {
-          projects = await getProjects() || [];
-        } catch (e: any) {
-          log('DeepLink', `Projects fetch failed: ${e.message}`);
+        // Fetch task and projects in parallel (single task by ID, not all tasks)
+        const [taskResult, projectsResult] = await Promise.allSettled([
+          getApiTask(taskId),
+          getProjects(),
+        ]);
+
+        const projects = projectsResult.status === 'fulfilled' ? (projectsResult.value || []) : [];
+        if (projectsResult.status === 'rejected') {
+          log('DeepLink', `Projects fetch failed: ${projectsResult.reason?.message}`);
         }
 
-        // Try Todoist API for full task data
-        try {
-          const allTasks = await getTasks();
-          const task = (allTasks || []).find((t: any) => t.id === taskId);
-          if (task) {
-            log('DeepLink', `Found task in API: "${task.content}"`);
-            nav.replace('task-detail', {task, projects});
-            return;
-          }
-        } catch (e: any) {
-          log('DeepLink', `API fetch failed: ${e.message}`);
+        if (taskResult.status === 'fulfilled' && taskResult.value) {
+          log('DeepLink', `Found task: "${taskResult.value.content}"`);
+          nav.replace('task-detail', {task: taskResult.value, projects});
+          return;
+        }
+        if (taskResult.status === 'rejected') {
+          log('DeepLink', `API fetch failed: ${taskResult.reason?.message}`);
         }
 
         // Fallback: build minimal task object from registry
@@ -162,8 +161,18 @@ function App(): React.JSX.Element {
     const initial = global.__superTaskButtonId;
     log('App', `MOUNT -- initial buttonId=${JSON.stringify(initial)} screen=${screenStack[0].name}`);
 
-    // Register motion listener while UI is active (matches Diagnostics "Start & Close" pattern)
+    // Gesture detector is initialized in index.js (before mount) so
+    // long-press detection works even on a fresh note view. We still
+    // call init here as a guard in case index.js init was too early.
     initGestureDetector();
+
+    // Expose a navigate callback so the gesture detector can route
+    // directly when the App is already mounted (re-show via showPluginView).
+    // For first-mount, getInitialScreen() reads the global instead.
+    global.__superTaskNavigate = (screen: string, params?: Record<string, any>) => {
+      log('App', `__superTaskNavigate: ${screen} ${params ? JSON.stringify(params) : ''}`);
+      resetToRef.current?.(screen, params);
+    };
 
     // Register listeners for subsequent button presses (e.g., switching
     // between tasks and config without closing the plugin view)
@@ -195,6 +204,7 @@ function App(): React.JSX.Element {
 
     return () => {
       log('App', 'UNMOUNT -- removing listeners');
+      global.__superTaskNavigate = null;
       if (configSub?.remove) configSub.remove();
       if (buttonSub?.remove) buttonSub.remove();
     };

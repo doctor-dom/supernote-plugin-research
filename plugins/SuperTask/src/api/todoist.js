@@ -112,6 +112,12 @@ async function fetchAllPages(path, params = '') {
   return allItems;
 }
 
+export async function getTask(taskId) {
+  const task = await todoistFetch(`/tasks/${taskId}`);
+  log('API', `getTask(${taskId}): "${task?.content}"`);
+  return task;
+}
+
 export async function getTasks(filter) {
   const params = filter ? `filter=${encodeURIComponent(filter)}` : '';
   const tasks = await fetchAllPages('/tasks', params);

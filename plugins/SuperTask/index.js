@@ -14,10 +14,15 @@ import {AppRegistry, Image} from 'react-native';
 import App from './App';
 import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
+import {initGestureDetector} from './src/utils/gestureDetector';
 
 AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
+
+// Register motion listener at init so long-press gestures work
+// even before the plugin UI has ever been opened.
+initGestureDetector();
 
 const icon = Image.resolveAssetSource(require('./assets/icon.png')).uri;
 
