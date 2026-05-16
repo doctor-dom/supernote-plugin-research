@@ -21,10 +21,11 @@
 | F-006 | Backlog | Offline mode | -- | Queue tasks locally, sync to Todoist when wifi available. |
 | F-007 | Done | Config persistence via RNFS | `design-settings.md`, `design-architecture.md` | JSON config file in MyStyle/SuperTask/ read/written via react-native-fs. Works from any screen (no note context needed). Confirmed on-device. |
 | F-008 | Done | Token obfuscation + auto-generation | `design-architecture.md` | XOR+base64 obfuscation replaces crypto-js (which broke on Hermes). Template config auto-generated on first launch. Plain text tokens auto-obfuscated on load. Info popup guides USB/BT/keyboard entry. |
-| F-009 | Open | Motion listener gesture capture | `../../docs/gesture-research.md` | Use `registerMotionListener` for finger-driven workflows: box draw to lasso+OCR, tap to complete, gesture triggers. New in sn-plugin-lib 0.1.43. On-device testing confirmed: palm rejection built into firmware, pen+finger independent, finger rect ~25 events/sec, long press trivially detectable. Gated activation pattern (toolbar button enters capture mode). |
+| F-009 | Done | Motion listener gesture capture | `../../docs/gesture-research.md` | Long-press finger detection on supertask:// links. Pre-scan on DOWN, mixed-input rejection (pen, multi-pointer). Confirmed on-device. |
 | F-010 | Open | Background processing with showPluginView | -- | Dismiss UI during API calls, reopen with results via `showPluginView()`. New in sn-plugin-lib 0.1.43. |
 | F-011 | Done | View Note from TaskDetail | -- | Button in "Captured from" section. Same note: closes plugin with page hint. Different note: tries openFilePath (opens file manager, not editor), falls back to showing path. |
-| F-012 | Blocked | Long-press gesture to open task from note | `../../docs/gesture-research.md` | Gesture detector built (`gestureDetector.js`), deep link wiring done. Blocked: motion listener doesn't fire when registered at init/mount. Only fires with Diagnostics "register then closePluginView 500ms later" pattern. See PROGRESS.md session 17 investigation. |
+| F-012 | Done | Long-press gesture to open task from note | `../../docs/gesture-research.md` | Gesture detector in `gestureDetector.js`, registered at init (index.js). Pre-scans links on finger DOWN, navigates via `global.__superTaskNavigate` (re-show) or `getInitialScreen` (first mount). Single task API + parallel fetch. |
+| F-013 | Open | Cross-note navigation | -- | Opening a .note file from a different note in the editor. `openFilePath()` opens file manager (B-002). Need alternative approach. |
 
 ## Tasks
 
@@ -38,4 +39,4 @@
 |----|--------|-------|-------|
 | B-001 | Open | OCR sometimes reads "1" as "I" | `recognizeElements` returns "Test I" instead of "Test 1". May need post-processing or user always reviews. |
 | B-002 | Open | Cross-note navigation opens file manager, not editor | `openFilePath()` with a .note path returns true but opens the Supernote file manager, not the note in the editor. `Linking.openURL('file://...')` fails (Android blocks file:// URIs). No known SDK method opens a .note file in the editor. View Note falls back to showing the path for manual navigation. |
-| B-003 | Investigating | Motion listener doesn't fire from init/mount | `registerMotionListener` called at index.js init or App.tsx mount returns a subscription but never delivers events. Same API called from Diagnostics "Start & Close" (register + closePluginView 500ms later) works. Blocks F-012 gesture detection. |
+| B-003 | Resolved | Motion listener doesn't fire from init/mount | Was a red herring -- events were firing but `log()` only collects in-memory (doesn't POST). Confirmed working from both index.js and App.tsx on sn-plugin-lib 0.1.43. |

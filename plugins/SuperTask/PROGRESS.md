@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 18 in progress.** Gesture detector long-press detection working on-device. Deep link routing issue: opens task-home instead of task detail.
+**Session 18 complete.** Bidirectional linking fully working: long-press finger gesture on supertask:// link opens task detail. Cross-note navigation still opens file manager (B-002).
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -23,30 +23,50 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | Native modules | Done | Gradle build pipeline for native modules. react-native-fs added. ProGuard/R8 configured. |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
 | 10a: Bidirectional linking (data) | Done | supertask:// links in notes, description back-references, task registry, page/device discovery. See Session 16. |
-| 10b: Bidirectional linking (interactive) | In Progress | View Note done. Gesture detector long-press working. Deep link routing to fix (session 18). |
+| 10b: Bidirectional linking (interactive) | Done | Long-press on supertask:// link opens task detail. View Note closes plugin (same note) or shows path (cross-note). Cross-note nav blocked by B-002. |
 | 10c: Offline mode | Future | Cache last API response in registry. Queue creates/completes locally. Sync on reconnect. |
 | 9: Task dashboard | Backlog | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. |
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
 
-## Session 18 -- gesture detector debugging and fix
+## Session 18 -- deep link routing and gesture hardening
 
-Branch: `phase3-harmony` (continued from session 17)
+Branch: `supertask-ui-redesign` (continued from session 17)
 
 ### What's done
 
-1. **Motion listener works from init** -- `registerMotionListener` confirmed working from both `index.js` and `App.tsx` useEffect on sn-plugin-lib 0.1.43.
+1. **Deep link routing fixed** -- `getInitialScreen()` only runs on first mount. For re-show (showPluginView on already-mounted App), gesture detector calls `global.__superTaskNavigate` directly. For first-mount, `getInitialScreen()` reads the deep link global as before.
 
-2. **Long-press detection fixed** -- replaced setTimeout (dead in background) with UP-event elapsed time check. Matches `docs/gesture-research.md` finding that long press has zero MOVE events.
+2. **Gesture detector moved to index.js** -- `initGestureDetector()` now runs at plugin init, so long-press works on fresh note views without ever opening the plugin UI first. App.tsx still calls it as a guard.
 
-3. **Full chain confirmed on-device** -- long press -> page scan -> link hit-test -> task match -> showPluginView(). All working.
+3. **False trigger prevention** -- pen activity (toolType 2) or multi-pointer (ptrs > 1) during a finger hold sets `_mixedInput` flag, rejecting the long press on UP. Catches gesture erase (pen + finger) and two-finger lasso.
+
+4. **Pre-scan on finger DOWN** -- link element scan starts immediately on finger DOWN, running in parallel with the hold time. By finger UP (~800ms+ later), the scan is already resolved. If no supertask link at the touch point, the long press is silently ignored. Eliminates ~1s post-UP scan delay.
+
+5. **Single task API fetch** -- added `getTask(taskId)` to todoist.js. DeepLinkLoader fetches one task by ID + projects in parallel via `Promise.allSettled`, instead of fetching all tasks sequentially. ~5x faster (1s vs 6s from finger lift to TaskDetail).
+
+6. **TaskDetail deep-link entry point** -- when entered via deep link (`!nav.canGoBack`): "< Note" closes plugin, "All Tasks" (underlined, tappable) navigates to task-home. Normal entry unchanged.
+
+7. **Motion listener confirmed working from init** -- `registerMotionListener` works from both `index.js` and `App.tsx` useEffect on sn-plugin-lib 0.1.43. B-003 resolved.
+
+### Confirmed on-device
+
+- Long press on supertask:// link -> task detail (fresh note + re-show)
+- Gesture erase (pen + finger) correctly rejected
+- Two-finger lasso correctly rejected
+- Long press off-link silently ignored
+- "< Note" closes plugin, "All Tasks" opens task-home
+- Single task API fetch working (`GET /tasks/{id}`)
 
 ### What's next
 
-- **Fix deep link routing** -- `showPluginView()` reopens the plugin but `getInitialScreen()` only runs on first mount. Need to check `global.__superTaskDeepLink` on re-mount or via a life listener.
-- Consider moving registration to `index.js` for production (no manual activation needed).
-- Remove diagnostic RAW event logging once gesture detection is stable.
+- **Cross-note navigation (B-002)** -- `openFilePath()` opens file manager, not editor. Need to find a way to open a .note file in the note editor from the plugin. This is the main remaining gap in bidirectional linking.
+- Consider removing diagnostic RAW event logging once gesture detection is stable.
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 18 final build with all fixes
 
 ## Session 17 -- interactive bidirectional navigation
 
