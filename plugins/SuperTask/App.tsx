@@ -21,10 +21,10 @@ import QuickAdd from './src/screens/QuickAdd';
 import Config from './src/screens/Config';
 import Diagnostics from './src/screens/Diagnostics';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
+import {initGestureDetector} from './src/utils/gestureDetector';
 import {loadConfig} from './src/utils/config';
 import {getTask as getRegistryTask} from './src/utils/taskRegistry';
 import {setConfigLoader, getTasks, getProjects} from './src/api/todoist';
-import {initGestureDetector} from './src/utils/gestureDetector';
 
 type ScreenEntry = {
   name: string;
@@ -162,7 +162,7 @@ function App(): React.JSX.Element {
     const initial = global.__superTaskButtonId;
     log('App', `MOUNT -- initial buttonId=${JSON.stringify(initial)} screen=${screenStack[0].name}`);
 
-    // Register gesture detector after UI mounts (must be active when registered)
+    // Register motion listener while UI is active (matches Diagnostics "Start & Close" pattern)
     initGestureDetector();
 
     // Register listeners for subsequent button presses (e.g., switching

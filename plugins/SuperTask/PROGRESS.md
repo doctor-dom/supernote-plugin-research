@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 17 in progress.** Interactive bidirectional navigation. View Note button works (same-note confirmed). Gesture detector built but motion listener doesn't fire -- active investigation.
+**Session 18 in progress.** Gesture detector long-press detection working on-device. Deep link routing issue: opens task-home instead of task detail.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -23,12 +23,30 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | Native modules | Done | Gradle build pipeline for native modules. react-native-fs added. ProGuard/R8 configured. |
 | Debug mode | Done | Toggle in Config Preferences, hides Log/trace when OFF |
 | 10a: Bidirectional linking (data) | Done | supertask:// links in notes, description back-references, task registry, page/device discovery. See Session 16. |
-| 10b: Bidirectional linking (interactive) | In Progress | View Note button done. Gesture detector built but motion listener activation blocked (see session 17). |
+| 10b: Bidirectional linking (interactive) | In Progress | View Note done. Gesture detector long-press working. Deep link routing to fix (session 18). |
 | 10c: Offline mode | Future | Cache last API response in registry. Queue creates/completes locally. Sync on reconnect. |
 | 9: Task dashboard | Backlog | All APIs confirmed: createNote, insertTextLink, insertNotePage, replaceElements. |
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
+
+## Session 18 -- gesture detector debugging and fix
+
+Branch: `phase3-harmony` (continued from session 17)
+
+### What's done
+
+1. **Motion listener works from init** -- `registerMotionListener` confirmed working from both `index.js` and `App.tsx` useEffect on sn-plugin-lib 0.1.43.
+
+2. **Long-press detection fixed** -- replaced setTimeout (dead in background) with UP-event elapsed time check. Matches `docs/gesture-research.md` finding that long press has zero MOVE events.
+
+3. **Full chain confirmed on-device** -- long press -> page scan -> link hit-test -> task match -> showPluginView(). All working.
+
+### What's next
+
+- **Fix deep link routing** -- `showPluginView()` reopens the plugin but `getInitialScreen()` only runs on first mount. Need to check `global.__superTaskDeepLink` on re-mount or via a life listener.
+- Consider moving registration to `index.js` for production (no manual activation needed).
+- Remove diagnostic RAW event logging once gesture detection is stable.
 
 ## Session 17 -- interactive bidirectional navigation
 
@@ -53,44 +71,26 @@ Plan: `~/.claude/plans/groovy-percolating-pelican.md`
 - **`showRattaDialog()`** -- native dialog works. Shows message + two buttons, returns which was tapped. Useful for user prompts but not navigation.
 - **View Note (same note)** -- `closePluginView()` returns user to the note. Works.
 
-### Active investigation: motion listener won't fire from gesture detector
+### Resolved: motion listener and long-press detection
 
-**The bug:** `registerMotionListener` called from `index.js` init or `App.tsx` useEffect registers successfully (returns subscription) but never fires events. The identical API call from the Diagnostics "Start & Close" button DOES fire events.
+Session 17's "events never fire" was a red herring -- events WERE flowing, but:
+1. `log()` from debug.js doesn't POST to dev server (only collects in-memory). Previous tests couldn't see events.
+2. `setTimeout` does NOT fire when plugin view is closed (JS timers suspended in background). The 800ms long-press timer never executed.
+3. Long press on Supernote produces ZERO MOVE events (confirmed in `docs/gesture-research.md`). MOVE-based elapsed time checks also fail.
 
-**What we've tried:**
-1. Register in `index.js` before UI shows -- no events
-2. Register in `App.tsx` useEffect (during UI mount) -- no events
-3. Register in Diagnostics, then `closePluginView()` 500ms later -- **events fire**
+**Fix:** Detect long press on the UP event by checking `Date.now() - downTime >= 800ms` and no drift exceeded. Works on-device -- confirmed 2048ms hold, 3 supertask links found, correct link hit-tested and matched.
 
-**The working pattern (Diagnostics):**
-```js
-_motionSub = PluginManager.registerMotionListener(1, {onMsg: ...});
-setTimeout(() => PluginManager.closePluginView(), 500);
-// Events fire on canvas after close
-```
+**Registration:** Works from both `index.js` (post-init) and `App.tsx` useEffect. Currently in App.tsx.
 
-**What's different about the failing cases:**
-- Time gap between register and closePluginView (minutes vs 500ms)
-- Register happens before UI has been shown (index.js) or at mount (useEffect)
-- The Diagnostics test registers then IMMEDIATELY closes
+**Finger events:** Always PTR_DOWN/PTR_UP (action 5/6), never ACTION_DOWN/UP (0/1), because EMR pen is primary pointer. Gesture detector handles both.
 
-**Theories to test:**
-- Native side may require register + close in quick succession to "arm" the listener
-- Listener may need to be registered AFTER `showPluginView()` has been called (Diagnostics runs while UI is shown)
-- There may be a native timeout that invalidates listeners after a period of inactivity
-- `registerType` parameter (0=always first, 1=normal, 2=always last) may affect persistence
+### Current bug: deep link routing
 
-**Goal:** Make the gesture detector active automatically whenever a note is open (plugin JS loads at note open). No manual activation step.
-
-**Next steps to try:**
-- Register listener from index.js + call `showPluginView()` then `closePluginView()` immediately to activate it (may flash UI briefly)
-- Try `registerType: 0` or `registerType: 2` instead of `1`
-- Check if `registerEventListener('event_pen_up', ...)` fires from init (different API, may have different lifecycle)
-- Inspect sn-plugin-lib PluginManager.ts wrapper for registerMotionListener to see if it does anything beyond the native call
+Long press correctly detects the link, sets `global.__superTaskDeepLink = {taskId, action: 'view-task'}`, and calls `showPluginView()`. But the plugin opens to task-home instead of task detail. Likely cause: `getInitialScreen()` runs in `useState` initializer (only on first mount), so it doesn't re-read the deep link global on subsequent `showPluginView()` calls.
 
 ### Builds
 
-- `build/outputs/SuperTask.snplg` -- session 17 build with View Note + gesture detector (6.82MB, RNFS)
+- `build/outputs/SuperTask.snplg` -- session 18 build with working long-press detection
 
 ## Session 16 -- bidirectional note-task linking
 

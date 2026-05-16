@@ -13,6 +13,17 @@
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {log} from './debug';
 
+// --- Action / tool decoding (matches Diagnostics format) ---
+const ACTION_NAMES = {0: 'DOWN', 1: 'UP', 2: 'MOVE', 3: 'CANCEL', 5: 'PTR_DOWN', 6: 'PTR_UP'};
+const TOOL_NAMES = {0: '???', 1: 'FINGER', 2: 'PEN'};
+
+function decodeAction(raw) {
+  const action = raw & 0xff;
+  const ptrIdx = (raw >> 8) & 0xff;
+  const name = ACTION_NAMES[action] || String(action);
+  return ptrIdx > 0 ? `${name}[${ptrIdx}]` : name;
+}
+
 // --- Config ---
 const LONG_PRESS_MS = 800;    // Minimum hold time for long press
 const MAX_DRIFT_PX = 20;      // Maximum finger movement during hold
@@ -21,7 +32,6 @@ const HIT_PADDING_PX = 30;    // Extra padding around link bounds for hit test
 // --- Module state ---
 let _sub = null;               // Motion listener subscription
 let _fingerDown = null;        // {x, y, time} of last finger DOWN
-let _longPressTimer = null;    // Timer ID for long-press detection
 let _enabled = true;           // Can be toggled off
 
 /**
@@ -36,24 +46,38 @@ export function initGestureDetector() {
 
   log('Gesture', 'Initializing gesture detector');
 
+  let _eventCount = 0;
   _sub = PluginManager.registerMotionListener(1, {
     onMsg: (msg) => {
+      _eventCount++;
+      const action = decodeAction(msg.action);
+      const tool = TOOL_NAMES[msg.toolType] || String(msg.toolType);
+      const x = Math.round(msg.x);
+      const y = Math.round(msg.y);
+      const p = msg.pressure?.toFixed(2) ?? '?';
+      const ptrs = msg.pointerCount ?? msg.pointers?.length ?? '?';
+
+      // Log every DOWN/UP/CANCEL, every 10th MOVE (same as Diagnostics)
+      if ((msg.action & 0xff) !== 2 || _eventCount % 10 === 0) {
+        log('Gesture', `#${_eventCount} ${action} ${tool} (${x},${y}) p=${p} ptrs=${ptrs}`);
+      }
+
       if (!_enabled) return;
       // Only handle finger events (toolType 1)
       if (msg.toolType !== 1) return;
 
-      const action = msg.action & 0xff;
+      const baseAction = msg.action & 0xff;
 
-      if (action === 0 || action === 5) {
+      if (baseAction === 0 || baseAction === 5) {
         // FINGER DOWN or PTR_DOWN
         onFingerDown(msg.x, msg.y);
-      } else if (action === 2) {
+      } else if (baseAction === 2) {
         // FINGER MOVE
         onFingerMove(msg.x, msg.y);
-      } else if (action === 1 || action === 6) {
+      } else if (baseAction === 1 || baseAction === 6) {
         // FINGER UP or PTR_UP
         onFingerUp(msg.x, msg.y);
-      } else if (action === 3) {
+      } else if (baseAction === 3) {
         // CANCEL
         cancelLongPress();
       }
@@ -85,22 +109,20 @@ export function setGestureEnabled(enabled) {
 }
 
 // --- Internal handlers ---
+// NOTE: setTimeout does NOT fire when the plugin view is closed (JS timers
+// are suspended). Long press is detected on the UP event by checking hold
+// duration -- per gesture-research.md, long press has ZERO MOVE events.
+
+let _driftExceeded = false;  // Track if finger moved too much
 
 function onFingerDown(x, y) {
-  cancelLongPress();
   _fingerDown = {x, y, time: Date.now()};
-
-  // Start long-press timer
-  _longPressTimer = setTimeout(() => {
-    if (_fingerDown) {
-      log('Gesture', `Long press detected at (${Math.round(x)}, ${Math.round(y)})`);
-      handleLongPress(_fingerDown.x, _fingerDown.y);
-    }
-  }, LONG_PRESS_MS);
+  _driftExceeded = false;
+  log('Gesture', `DOWN at (${Math.round(x)},${Math.round(y)})`);
 }
 
 function onFingerMove(x, y) {
-  if (!_fingerDown) return;
+  if (!_fingerDown || _driftExceeded) return;
 
   // Check drift
   const dx = x - _fingerDown.x;
@@ -108,22 +130,30 @@ function onFingerMove(x, y) {
   const dist = Math.sqrt(dx * dx + dy * dy);
 
   if (dist > MAX_DRIFT_PX) {
-    // Too much movement -- not a long press
-    cancelLongPress();
+    log('Gesture', `DRIFT: ${Math.round(dist)}px > ${MAX_DRIFT_PX}px -- not a long press`);
+    _driftExceeded = true;
   }
 }
 
 function onFingerUp(x, y) {
-  // Cancel any pending long press (finger lifted before threshold)
-  cancelLongPress();
+  if (!_fingerDown) return;
+
+  const held = Date.now() - _fingerDown.time;
+  log('Gesture', `UP at (${Math.round(x)},${Math.round(y)}) after ${held}ms drift=${_driftExceeded}`);
+
+  // Long press: held >= threshold, no excessive drift
+  if (held >= LONG_PRESS_MS && !_driftExceeded) {
+    log('Gesture', `LONG PRESS DETECTED at (${Math.round(_fingerDown.x)},${Math.round(_fingerDown.y)}) held ${held}ms`);
+    handleLongPress(_fingerDown.x, _fingerDown.y);
+  }
+
+  _fingerDown = null;
+  _driftExceeded = false;
 }
 
 function cancelLongPress() {
-  if (_longPressTimer) {
-    clearTimeout(_longPressTimer);
-    _longPressTimer = null;
-  }
   _fingerDown = null;
+  _driftExceeded = false;
 }
 
 // --- Long press action ---

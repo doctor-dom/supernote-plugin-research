@@ -14,7 +14,6 @@ import {AppRegistry, Image} from 'react-native';
 import App from './App';
 import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
-// Gesture detector is initialized from App.tsx after UI mounts (must register after UI is active)
 
 AppRegistry.registerComponent(appName, () => App);
 
