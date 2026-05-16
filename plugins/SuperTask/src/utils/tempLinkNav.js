@@ -1,8 +1,8 @@
 /**
- * Temp Link Navigation -- cross-note navigation via a temporary page.
+ * Temp Link Navigation -- cross-note navigation via temporary insertTextLink.
  *
- * Inserts a new page after the current one with a centered navigation link
- * and explanatory text. On next plugin open, removes the entire temp page.
+ * Creates a tappable link on the current page (bottom-center, 85% from top)
+ * pointing to a target note. On next plugin open, cleans up via deleteElements.
  *
  * NOTE: This is a workaround until Ratta exposes a direct note-open API.
  * TODO: Replace with direct navigation API when available.
@@ -19,7 +19,7 @@ import {log, logError} from './debug';
 const REGISTRY_DIR = '/storage/emulated/0/MyStyle/SuperTask';
 const PENDING_FILE = REGISTRY_DIR + '/pending-temp-link.json';
 
-// Marker so we can identify our temp link if page removal fails
+// Marker prefix so we can identify our temp links when scanning elements
 const TEMP_LINK_MARKER = '[ST-NAV]';
 
 /**
@@ -64,7 +64,8 @@ async function clearPending() {
 }
 
 /**
- * Create a temp navigation page after the current page with a centered link.
+ * Create a temp navigation link on the current page.
+ * Placed at 85% from top, horizontally centered.
  *
  * @param {string} targetPath - Full path to the target .note file
  * @param {number} targetPage - Page number in target note (0-indexed)
@@ -85,45 +86,16 @@ export async function createTempLink(targetPath, targetPage = 0) {
       return {success: false, error: 'Could not get current file path'};
     }
 
-    log('TempLink', `Creating temp nav page: ${sourcePath} p.${sourcePage} -> ${targetPath} p.${targetPage}`);
+    log('TempLink', `Creating temp link: ${sourcePath} p.${sourcePage} -> ${targetPath} p.${targetPage}`);
 
-    // Save current note before any file-level operations
+    // Save current note to ensure consistent state before inserting
     await PluginNoteAPI.saveCurrentNote();
 
-    // Get the current page's template for the new page
-    let templateName = 'blank';
-    try {
-      const tplResult = await PluginFileAPI.getNotePageTemplate(sourcePath, sourcePage);
-      if (tplResult?.success && tplResult.result?.name) {
-        templateName = tplResult.result.name;
-      }
-      log('TempLink', `Page template: ${templateName}`);
-    } catch (e) {
-      log('TempLink', `Template lookup failed, using blank: ${e.message}`);
-    }
-
-    // Insert new page after current page
-    const newPage = sourcePage + 1;
-    const insertPageResult = await PluginFileAPI.insertNotePage({
-      notePath: sourcePath,
-      page: sourcePage,
-      template: templateName,
-    });
-
-    log('TempLink', `insertNotePage result: ${JSON.stringify(insertPageResult)}`);
-
-    if (!insertPageResult?.success) {
-      return {
-        success: false,
-        error: `insertNotePage failed: ${insertPageResult?.error?.message || 'unknown'}`,
-      };
-    }
-
-    // Get page size for centering
+    // Get page size for proportional placement
     let pageWidth = 1404;
     let pageHeight = 1872;
     try {
-      const sizeResult = await PluginFileAPI.getPageSize(sourcePath, newPage);
+      const sizeResult = await PluginFileAPI.getPageSize(sourcePath, sourcePage);
       if (sizeResult?.success && sizeResult.result) {
         pageWidth = sizeResult.result.width || pageWidth;
         pageHeight = sizeResult.result.height || pageHeight;
@@ -132,122 +104,72 @@ export async function createTempLink(targetPath, targetPage = 0) {
       log('TempLink', `getPageSize failed, using defaults: ${e.message}`);
     }
 
-    // Now place the link on the new page using insertTextLink.
-    // insertTextLink works on the "current" in-memory page, but after
-    // insertNotePage + save/reload, the current page hasn't changed.
-    // So we save, reload to pick up the new page, then insert the link
-    // via insertElements (file-level API that targets any page).
-
-    // Build the link text
-    const targetFilename = targetPath.split('/').pop().replace('.note', '');
-
-    // Center the link on the page
-    const linkWidth = 800;
-    const linkHeight = 60;
+    // Place at 85% from top, horizontally centered
+    const linkWidth = 600;
+    const linkHeight = 50;
     const linkLeft = Math.round((pageWidth - linkWidth) / 2);
-    const linkTop = Math.round(pageHeight / 2 - 80);
+    const linkTop = Math.round(pageHeight * 0.85);
 
-    // Create the text link on the new page
-    // We'll use insertTextLink after reloading onto the new page... but we can't
-    // navigate there programmatically. Instead, use insertTextLink on current page
-    // which goes into in-memory state, but target the file with save.
-    //
-    // Actually: insertTextLink always inserts on the current viewed page.
-    // Since we can't switch pages, we'll construct the link element manually
-    // and use insertElements on the new page (file-level API).
+    const targetFilename = targetPath.split('/').pop().replace('.note', '');
+    const showText = `Tap to open: ${targetFilename}`;
 
-    const linkElement = await PluginCommAPI.createElement(600);
-    if (!linkElement?.success || !linkElement.result) {
-      log('TempLink', `createElement(600) failed: ${JSON.stringify(linkElement)}`);
-      // Rollback: remove the page we just inserted
-      await PluginFileAPI.removeNotePage(sourcePath, newPage);
-      return {success: false, error: 'Failed to create link element'};
-    }
-
-    const el = linkElement.result;
-    el.type = 600;
-    el.link = {
-      category: 0,       // text link
-      X: linkLeft,
-      Y: linkTop,
-      width: linkWidth,
-      height: linkHeight,
-      page: newPage,
-      style: 1,           // solid border (prominent)
-      linkType: 1,        // jump to note file
+    const textLink = {
       destPath: targetPath,
       destPage: targetPage,
-      fontSize: 28,
-      fullText: `${TEMP_LINK_MARKER} ${targetFilename}`,
-      showText: targetFilename,
-      italic: 0,
-      controlTrailNums: [],
+      linkType: 1,        // 1 = jump to note file
+      style: 1,           // 1 = solid border (visible)
+      rect: {
+        left: linkLeft,
+        top: linkTop,
+        right: linkLeft + linkWidth,
+        bottom: linkTop + linkHeight,
+      },
+      fontSize: 24,
+      fullText: `${TEMP_LINK_MARKER} ${showText}`,
+      showText: showText,
+      isItalic: 0,
     };
 
-    const insertResult = await PluginFileAPI.insertElements(sourcePath, newPage, [el]);
-    log('TempLink', `insertElements (link) result: ${JSON.stringify(insertResult)}`);
+    const insertResult = await PluginNoteAPI.insertTextLink(textLink);
+    log('TempLink', `insertTextLink result: ${JSON.stringify(insertResult)}`);
 
-    // Also add explanatory text above and below the link
-    const textAbove = await PluginCommAPI.createElement(500);
-    if (textAbove?.success && textAbove.result) {
-      const ta = textAbove.result;
-      ta.type = 500;
-      ta.textBox = {
-        textContentFull: `${TEMP_LINK_MARKER} Tap the link below to jump to your task`,
-        textRect: {
-          left: linkLeft,
-          top: linkTop - 120,
-          right: linkLeft + linkWidth,
-          bottom: linkTop - 20,
-        },
-        fontSize: 24,
-        textAlign: 1,     // center
-        textBold: 1,
-        textItalics: 0,
-        textFrameWidthType: 0,
-        textFrameStyle: 0,
-        textEditable: 1,  // locked
+    if (!insertResult?.success) {
+      return {
+        success: false,
+        error: `insertTextLink failed: ${insertResult?.error?.message || 'unknown'}`,
       };
-      await PluginFileAPI.insertElements(sourcePath, newPage, [ta]);
     }
 
-    const textBelow = await PluginCommAPI.createElement(500);
-    if (textBelow?.success && textBelow.result) {
-      const tb = textBelow.result;
-      tb.type = 500;
-      tb.textBox = {
-        textContentFull: `${TEMP_LINK_MARKER} This page will be removed automatically`,
-        textRect: {
-          left: linkLeft,
-          top: linkTop + linkHeight + 30,
-          right: linkLeft + linkWidth,
-          bottom: linkTop + linkHeight + 100,
-        },
-        fontSize: 20,
-        textAlign: 1,     // center
-        textBold: 0,
-        textItalics: 1,
-        textFrameWidthType: 0,
-        textFrameStyle: 0,
-        textEditable: 1,
-      };
-      await PluginFileAPI.insertElements(sourcePath, newPage, [tb]);
-    }
+    // Save to persist the new link element to the file
+    await PluginNoteAPI.saveCurrentNote();
 
-    // Reload so the user sees the new page when they swipe
-    await PluginCommAPI.reloadFile();
+    // Find the numInPage of the element we just inserted
+    let numInPage = null;
+    try {
+      const elemsResult = await PluginFileAPI.getElements(sourcePage, sourcePath);
+      if (elemsResult?.success && elemsResult.result) {
+        for (const el of elemsResult.result) {
+          if (el.type === 600 && el.link?.fullText?.includes(TEMP_LINK_MARKER)) {
+            numInPage = el.numInPage;
+          }
+        }
+      }
+    } catch (scanErr) {
+      log('TempLink', `Element scan failed (non-fatal): ${scanErr.message}`);
+    }
 
     // Save pending info for cleanup
     await savePending({
       sourcePath,
-      tempPage: newPage,
+      sourcePage,
+      numInPage,
       markerText: TEMP_LINK_MARKER,
       targetPath,
       createdAt: new Date().toISOString(),
     });
 
-    log('TempLink', `Temp nav page created at p.${newPage}. User should go to next page.`);
-    return {success: true, tempPage: newPage};
+    log('TempLink', `Temp link created. numInPage=${numInPage}.`);
+    return {success: true, numInPage};
 
   } catch (e) {
     logError('TempLink', e);
@@ -256,74 +178,87 @@ export async function createTempLink(targetPath, targetPage = 0) {
 }
 
 /**
- * Clean up any pending temp navigation page. Call on every plugin open.
+ * Clean up any pending temp link. Call on every plugin open.
  *
- * Removes the temp page via removeNotePage. If the page was already removed
- * (or the note doesn't exist), fails silently.
+ * Attempts deleteElements on the source page. If the element was already
+ * removed (user deleted it, page cleared, etc.), fails silently.
  */
 export async function cleanupTempLink() {
   const pending = await readPending();
   if (!pending) return;
 
-  const {sourcePath, tempPage, markerText} = pending;
-  log('TempLink', `Cleanup: checking temp page ${tempPage} in ${sourcePath}`);
+  const {sourcePath, sourcePage, numInPage, markerText} = pending;
+  log('TempLink', `Cleaning up temp link: ${sourcePath} p.${sourcePage} numInPage=${numInPage}`);
 
   try {
-    // Verify the temp page still exists and has our marker
-    const elemsResult = await PluginFileAPI.getElements(tempPage, sourcePath);
+    if (numInPage != null) {
+      // Fast path: we know the exact element index
+      const result = await PluginFileAPI.deleteElements(sourcePath, sourcePage, [numInPage]);
+      log('TempLink', `deleteElements result: ${JSON.stringify(result)}`);
+
+      if (result?.success) {
+        await clearPending();
+        await reloadIfOnPage(sourcePath, sourcePage);
+        log('TempLink', 'Cleanup complete (by numInPage)');
+        return;
+      }
+      // If deleteElements failed, fall through to scan
+      log('TempLink', `deleteElements by numInPage failed, trying scan`);
+    }
+
+    // Slow path: scan elements and find by marker text
+    const elemsResult = await PluginFileAPI.getElements(sourcePage, sourcePath);
     if (!elemsResult?.success || !elemsResult.result) {
-      log('TempLink', 'Cleanup: page not accessible, clearing pending');
+      log('TempLink', 'Cleanup: getElements failed, clearing pending');
       await clearPending();
       return;
     }
 
-    const hasMarker = elemsResult.result.some(el => {
+    const toDelete = [];
+    for (const el of elemsResult.result) {
       const text = el.link?.fullText || el.textBox?.textContentFull || '';
-      return text.includes(markerText);
-    });
+      if (text.includes(markerText)) {
+        toDelete.push(el.numInPage);
+      }
+    }
 
-    if (!hasMarker) {
-      log('TempLink', 'Cleanup: no marker found on page (already cleaned?), clearing pending');
+    if (toDelete.length === 0) {
+      log('TempLink', 'Cleanup: no matching elements found (already removed?)');
       await clearPending();
       return;
     }
 
-    // Remove the entire temp page
-    const result = await PluginFileAPI.removeNotePage(sourcePath, tempPage);
-    log('TempLink', `removeNotePage result: ${JSON.stringify(result)}`);
+    const result = await PluginFileAPI.deleteElements(sourcePath, sourcePage, toDelete);
+    log('TempLink', `deleteElements(scan) result: ${JSON.stringify(result)}`);
+    await clearPending();
 
     if (result?.success) {
-      await clearPending();
-      // Reload if we're in the same note
-      try {
-        const fpResult = await PluginCommAPI.getCurrentFilePath();
-        if (fpResult?.result === sourcePath) {
-          await PluginCommAPI.reloadFile();
-          log('TempLink', 'Reloaded after page removal');
-        }
-      } catch (e) {
-        // non-fatal
-      }
-      log('TempLink', 'Cleanup complete (page removed)');
-    } else {
-      // Page removal failed -- try element-level cleanup as fallback
-      log('TempLink', 'removeNotePage failed, trying element-level cleanup');
-      const toDelete = [];
-      for (const el of elemsResult.result) {
-        const text = el.link?.fullText || el.textBox?.textContentFull || '';
-        if (text.includes(markerText)) {
-          toDelete.push(el.numInPage);
-        }
-      }
-      if (toDelete.length > 0) {
-        await PluginFileAPI.deleteElements(sourcePath, tempPage, toDelete);
-      }
-      await clearPending();
-      log('TempLink', `Fallback cleanup: deleted ${toDelete.length} elements`);
+      await reloadIfOnPage(sourcePath, sourcePage);
     }
+
+    log('TempLink', `Cleanup complete (removed ${toDelete.length} elements)`);
   } catch (e) {
-    // Non-fatal -- link/page may already be gone
+    // Non-fatal -- link may already be gone
     log('TempLink', `Cleanup error (non-fatal): ${e.message}`);
     await clearPending();
+  }
+}
+
+/**
+ * If we're currently viewing the source page, reload to reflect deletion.
+ */
+async function reloadIfOnPage(path, page) {
+  try {
+    const [fpResult, pageResult] = await Promise.all([
+      PluginCommAPI.getCurrentFilePath(),
+      PluginCommAPI.getCurrentPageNum(),
+    ]);
+    if (fpResult?.result === path && pageResult?.result === page) {
+      await PluginCommAPI.reloadFile();
+      log('TempLink', 'Reloaded current page after cleanup');
+    }
+  } catch (e) {
+    // Non-fatal
+    log('TempLink', `Reload check failed: ${e.message}`);
   }
 }

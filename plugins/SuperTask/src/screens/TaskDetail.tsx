@@ -89,7 +89,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
       const targetPath = noteContext.notePath
         || currentPath.substring(0, currentPath.lastIndexOf('/') + 1) + noteContext.noteFile;
 
-      setViewNoteStatus('Creating navigation page...');
+      setViewNoteStatus('Creating navigation link...');
 
       const result = await createTempLink(targetPath, noteContext.pageNum - 1);
 
@@ -99,9 +99,9 @@ export default function TaskDetail({nav, task, projects}: Props) {
         return;
       }
 
-      setViewNoteStatus('Go to next page and tap the link');
-      log('TaskDetail', `Temp nav page created at p.${result.tempPage}, closing plugin`);
-      setTimeout(() => PluginManager.closePluginView(), 1500);
+      setViewNoteStatus('Tap the link on the page to navigate');
+      log('TaskDetail', 'Temp link created, closing plugin');
+      setTimeout(() => PluginManager.closePluginView(), 1200);
     } catch (e: any) {
       logError('TaskDetail', e);
       setViewNoteStatus(`Error: ${e.message}`);
