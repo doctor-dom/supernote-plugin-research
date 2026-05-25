@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasksByProject, completeTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -126,7 +127,7 @@ export default function ProjectView({nav, projectId, projectName}: Props) {
             onPress={() => { log('ProjectView', 'ADD pressed'); nav.push('task-add', {projects: [], defaultProjectId: projectId}); }}>
             <Text style={styles.headerButtonText}>+</Text>
           </Pressable>
-          <Pressable style={styles.headerButton} onPress={() => PluginManager.closePluginView()}>
+          <Pressable style={styles.headerButton} onPress={() => closePlugin()}>
             <Text style={styles.headerButtonText}>Close</Text>
           </Pressable>
         </View>

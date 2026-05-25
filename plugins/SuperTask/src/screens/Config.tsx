@@ -18,6 +18,7 @@ import {
   Clipboard,
 } from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {loadConfig, saveConfig, getConfigSource, reloadConfig, wasTemplateGenerated} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
@@ -68,7 +69,7 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
-      if (config.lassoGestureInput) setLassoGestureInput(config.lassoGestureInput);
+      if (config.lassoGestureInput) setLassoGestureInput(config.lassoGestureInput === 'off' ? 'off' : 'finger');
 
       setConfigSource(getConfigSource());
 
@@ -307,18 +308,18 @@ export default function Config({onNavigate, nav}: Props) {
       <View style={s.separator} />
       <Text style={s.groupTitle}>Handwriting</Text>
 
-      <Text style={s.sectionTitle}>Quick lasso-add input</Text>
+      <Text style={s.sectionTitle}>Gestures</Text>
       <View style={s.inlineRow}>
-        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('finger')}>
-          <Text style={s.radio}>{lassoGestureInput === 'finger' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Finger</Text>
+        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('off')}>
+          <Text style={s.radio}>{lassoGestureInput === 'off' ? '(*)' : '( )'}</Text>
+          <Text style={s.radioLabel}>Off</Text>
         </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('pen')}>
-          <Text style={s.radio}>{lassoGestureInput === 'pen' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Pen</Text>
+        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('finger')}>
+          <Text style={s.radio}>{lassoGestureInput !== 'off' ? '(*)' : '( )'}</Text>
+          <Text style={s.radioLabel}>Finger lasso</Text>
         </Pressable>
       </View>
-      <Text style={s.hint}>  Hold ~0.4s then drag to select and add task</Text>
+      <Text style={s.hint}>  Long press: open linked task. Lasso to quick-add</Text>
 
       <Text style={s.sectionTitle}>Mark as text font size</Text>
       <View style={s.inlineRow}>
@@ -368,7 +369,7 @@ export default function Config({onNavigate, nav}: Props) {
               <Text style={s.headerBtnText}>Back</Text>
             </Pressable>
           ) : (
-            <Pressable style={s.headerBtn} onPress={() => PluginManager.closePluginView()}>
+            <Pressable style={s.headerBtn} onPress={() => closePlugin()}>
               <Text style={s.headerBtnText}>Close</Text>
             </Pressable>
           )}

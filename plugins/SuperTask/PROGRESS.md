@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 20 in progress.** Cross-note nav complete. Quick lasso-add gesture (F-015) implemented but has bugs to fix (see session 20 below).
+**Session 22 complete.** Pen lasso mode removed entirely (source of B-008, B-009, B-010, B-011). Gesture detector simplified to finger-only. Pre-scan queue clog fixed with generation counter. Motion listener fully silent when plugin UI is open. Testing latest build on-device.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -29,6 +29,61 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
+
+## Session 23 -- lasso-add gate, structural fixes, confirmed on-device
+
+Branch: `phase3-harmony`
+
+### What's done
+
+1. **Lasso-add gate for linked content** -- If finger DOWN is on content that already has a supertask:// link, lasso-add is blocked. Two-tier approach: (a) sync fast-path in `onFingerMove` checks `_preScanResult` before entering lasso mode, (b) async fallback in `handleLassoAdd` awaits the pre-scan promise (already settled by UP). No additional SDK calls -- reuses the pre-scan that fires on every DOWN.
+
+2. **`_actionInProgress` structural fix** -- Both `handleLongPress` and `handleLassoAdd` now wrap their entire body in a single `try/finally` after setting `_actionInProgress = true`. Any early return (gate abort, no link found, no content selected) always hits the `finally`. Previously, early returns in `handleLassoAdd`'s gate check exited without clearing the flag, permanently killing the gesture listener.
+
+3. **Pre-scan `.then()` race condition fixed** -- The callback that caches results in `_preScanResult` now captures the generation counter (`const gen = ++_scanGeneration`) and only writes if `gen === _scanGeneration`. Stale pre-scans from cancelled native lasso/pen operations can no longer overwrite a current gesture's scan result.
+
+4. **B-007 confirmed fixed** -- Long press on empty space correctly ignored on-device.
+
+5. **F-015 confirmed working** -- Lasso-add on fresh content, gate blocking on linked content, long press on links, and no freeze after gate fires -- all verified on-device.
+
+### Known issues
+
+- **B-012: Phantom pen/multi-touch** -- Observed in session 22 testing but NOT in session 23. Single phantom pen event cancels gesture + 500ms cooldown blocks retries. May require sustained pen activity threshold (future fix).
+- **recognizeElements error 117** -- OCR fails on some lasso selections (16 strokes returned null). Native handwriting conversion works fine on the same content. Potentially too many strokes or unclear handwriting in the region. Needs investigation.
+
+### Key implementation details
+
+**Gesture detector (finger-only):**
+- Long press: DOWN, hold 800ms+, no drift >20px, UP -> pre-scan link hit-test -> task detail
+- Lasso-add: DOWN, hold 400ms+, then move >20px, UP -> gate check -> `lassoElements(bbox)` -> QuickAdd
+- Gate: `_preScanResult?.taskId` blocks lasso mode entry (sync); `await _linkScanPromise` blocks `handleLassoAdd` (async fallback)
+- Neither: movement before 400ms = normal touch, ignored
+- Guards: mixed input (pen during finger), multi-touch (PTR_DOWN), config off, UI open, linked content gate
+
+**Pre-scan generation counter + sync cache:**
+```
+DOWN → gen = ++_scanGeneration
+_linkScanPromise = preScanLinks(x, y, gen).then(r => {
+  if (gen === _scanGeneration) _preScanResult = r;  // only current gen writes
+  return r;
+});
+```
+
+**`_actionInProgress` lifecycle:**
+```
+handleLassoAdd / handleLongPress:
+  if (_actionInProgress) return;  // re-entry guard
+  _actionInProgress = true;
+  try {
+    ... all logic, including early returns ...
+  } finally {
+    _actionInProgress = false;  // ALWAYS clears
+  }
+```
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 23, lasso gate + structural fixes
 
 ## Session 20 -- gesture fixes, lasso-add (F-015)
 

@@ -22,6 +22,7 @@ PluginManager.init();
 
 // Register motion listener at init so long-press gestures work
 // even before the plugin UI has ever been opened.
+// Config 'off' disables via reloadGestureConfig -- no restart needed.
 initGestureDetector();
 
 const icon = Image.resolveAssetSource(require('./assets/icon.png')).uri;

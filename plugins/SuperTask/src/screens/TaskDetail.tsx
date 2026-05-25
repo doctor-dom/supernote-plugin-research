@@ -12,6 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import {PluginCommAPI, PluginManager} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {createTempLink} from '../utils/tempLinkNav';
 import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todoist';
@@ -78,7 +79,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
         // Same note -- close plugin, user is already there
         setViewNoteStatus(`Go to page ${noteContext.pageNum}`);
         log('TaskDetail', `Same note, closing plugin. Page ${noteContext.pageNum}`);
-        setTimeout(() => PluginManager.closePluginView(), 800);
+        setTimeout(() => closePlugin(), 800);
         return;
       }
 
@@ -101,7 +102,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
 
       setViewNoteStatus('Tap the link on the page to navigate');
       log('TaskDetail', 'Temp link created, closing plugin');
-      setTimeout(() => PluginManager.closePluginView(), 1200);
+      setTimeout(() => closePlugin(), 1200);
     } catch (e: any) {
       logError('TaskDetail', e);
       setViewNoteStatus(`Error: ${e.message}`);
@@ -211,7 +212,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
             nav.pop();
           } else {
             log('TaskDetail', 'BACK pressed (deep link) -- closing plugin');
-            PluginManager.closePluginView();
+            closePlugin();
           }
         }}>
           <Text style={styles.backText}>{nav.canGoBack ? '< Back' : '< Note'}</Text>

@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasks, completeTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -91,7 +92,7 @@ export default function TaskList({onNavigate}: Props) {
   };
 
   const handleClose = () => {
-    PluginManager.closePluginView();
+    closePlugin();
   };
 
   const renderTask = ({item}: {item: any}) => {

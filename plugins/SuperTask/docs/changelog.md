@@ -7,6 +7,51 @@
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
 > - Session state: `PROGRESS.md` -- current session handoff notes
 
+## 2026-05-25 (session 23)
+
+### F-015: Lasso-add gate for linked content
+**Resolution:** Lasso-add gesture now checks pre-scan result before proceeding. If the finger DOWN point is on content that already has a supertask:// link, the lasso-add is aborted (`LASSO-ADD ABORTED` in logs). Two-tier gate: sync fast-path in `onFingerMove` blocks lasso mode entry if pre-scan already resolved; async fallback in `handleLassoAdd` awaits the pre-scan (already settled by finger UP). Zero additional SDK calls -- reuses the pre-scan that runs on every finger DOWN.
+
+### Structural: `_actionInProgress` leak fixed
+**Resolution:** Both `handleLongPress` and `handleLassoAdd` restructured with a single `try/finally` wrapping the entire function body after `_actionInProgress = true`. Previously, early returns (gate abort, "no link found", etc.) could exit without hitting the `finally` block, permanently setting `_actionInProgress = true` and killing the entire gesture listener. Any code path now guarantees cleanup.
+
+### Pre-scan `.then()` race condition fixed
+**Resolution:** The `.then()` callback that caches pre-scan results in `_preScanResult` now captures the generation counter at creation time and only writes if it matches the current `_scanGeneration`. Prevents stale pre-scans (from cancelled native lasso/pen operations) from overwriting a current gesture's scan result.
+
+### B-007 confirmed fixed
+**Resolution:** Long press on empty space correctly ignored. Confirmed on-device -- pre-scan hit-tests against link bounds and only fires on direct hits.
+
+## 2026-05-17 (session 22)
+
+### Pen lasso mode removed
+**Resolution:** Pen-hold-to-lasso gesture removed entirely. Was the root cause of B-008 (border stroke deletion killing content via reloadFile), B-009 (finger drift not tracked in pen mode), B-010 (race conditions from concurrent async handlers), B-011 (replaceElements requires reloadFile for display update). Gesture detector simplified to finger-only. `deleteBorderStroke`, `_lassoToolType`, `PluginNoteAPI` import all removed.
+
+### B-006, B-008, B-009, B-010, B-011 resolved
+**Resolution:** All pen-lasso-specific bugs resolved by removing pen lasso mode. No longer applicable.
+
+### Pre-scan queue clog fixed
+**Resolution:** Added `_scanGeneration` counter. Each finger DOWN increments it. `preScanLinks` checks generation after each `await` and bails if stale. Prevents cancelled/rapid-fire scans from piling up on the native AIDL bridge, which was causing multi-second delays on long press (5+ queued `getElements` calls blocking the current scan).
+
+### Motion listener silent when UI open
+**Resolution:** Early return for `!_enabled` moved before all logging and event processing. When plugin view is open, the motion listener does nothing -- no event logs, no pre-scans, no hit-testing.
+
+### Config simplified to Off/Finger lasso
+**Resolution:** Removed 'pen' option. Section renamed to "Gestures". Two options: Off, Finger lasso. Existing 'pen' config values auto-migrate to 'finger' on load.
+
+## 2026-05-16 (session 21)
+
+### F-015: Quick lasso-add gesture -- bugs 1-4 fixed
+**Resolution:** All four gesture bugs from session 20 fixed: (1) PTR_DOWN now cancels gesture instead of restarting -- prevents two-finger lasso false trigger. (2) `_mixedInput` checked in lasso UP path. (3) `lassoElements` result checked for `result === false`. (4) `deleteBorderStroke()` removes pen-drawn border before `lassoElements()` in pen mode. Additionally fixed multi-pointer false activation and mixed input detection for pen mode (was comparing configured cancel tool, now compares against active gesture's tool type). Awaiting on-device verification.
+
+### Gesture lifecycle (enable/disable)
+**Resolution:** Gestures now disabled while plugin UI is visible, re-enabled on close. Created `closePlugin()` utility (`src/utils/closePlugin.js`) that calls `setGestureEnabled(true)` before `closePluginView()`. Replaced all direct `closePluginView()` calls across 8 screens. Needed because `closePluginView()` doesn't unmount the React component tree (useEffect cleanup never fires).
+
+### Three-way gesture config (Off/Finger/Pen)
+**Resolution:** Replaced separate boolean + tool select with single `lassoGestureInput` setting ('off', 'finger', 'pen'). `_configOff` flag ensures App mount/unmount lifecycle can't override the disabled state. Config screen uses radio buttons. Takes effect immediately via `applyGestureConfig()`, no restart required.
+
+### Gesture guard documentation
+**Resolution:** Created `docs/design-gesture-guards.md` (6-layer guard architecture: config kill switch, event filtering, DOWN gates, MOVE gates, UP gates, action validation) and `docs/gesture-guards-diagram.svg` (visual pipeline diagram with timing sequences and native gesture protection table).
+
 ## 2026-05-16 (session 19-20)
 
 ### F-013: Cross-note navigation

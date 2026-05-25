@@ -21,7 +21,8 @@ import QuickAdd from './src/screens/QuickAdd';
 import Config from './src/screens/Config';
 import Diagnostics from './src/screens/Diagnostics';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
-import {initGestureDetector} from './src/utils/gestureDetector';
+import {initGestureDetector, setGestureEnabled} from './src/utils/gestureDetector';
+import {closePlugin} from './src/utils/closePlugin';
 import {loadConfig} from './src/utils/config';
 import {getTask as getRegistryTask} from './src/utils/taskRegistry';
 import {setConfigLoader, getTask as getApiTask, getProjects} from './src/api/todoist';
@@ -162,6 +163,12 @@ function App(): React.JSX.Element {
       if (config.debugMode) setDebugMode(true);
     });
 
+    // Gestures OFF while plugin UI is visible, ON when note is visible.
+    // closePluginView() hides but doesn't unmount, so we disable here
+    // and re-enable via closePlugin() utility (used by every screen).
+    setGestureEnabled(false);
+    log('App', 'Gestures OFF (view open)');
+
     const initial = global.__superTaskButtonId;
     log('App', `MOUNT -- initial buttonId=${JSON.stringify(initial)} screen=${screenStack[0].name}`);
 
@@ -178,6 +185,8 @@ function App(): React.JSX.Element {
     // For first-mount, getInitialScreen() reads the global instead.
     global.__superTaskNavigate = (screen: string, params?: Record<string, any>) => {
       log('App', `__superTaskNavigate: ${screen} ${params ? JSON.stringify(params) : ''}`);
+      setGestureEnabled(false);
+      log('App', 'Gestures OFF (navigate)');
       cleanupTempLink().catch(e => log('App', `Temp link cleanup error: ${e.message}`));
       resetToRef.current?.(screen, params);
     };
@@ -186,20 +195,23 @@ function App(): React.JSX.Element {
     // between tasks and config without closing the plugin view)
     const configSub = PluginManager.registerConfigButtonListener({
       onClick: () => {
-        log('App', 'CONFIG button pressed (listener)');
+        setGestureEnabled(false);
+        log('App', 'CONFIG button pressed (listener) -- gestures OFF');
         resetToRef.current?.('config');
       },
       onConfigButtonPress: () => {
-        log('App', 'CONFIG button pressed (listener/legacy)');
+        setGestureEnabled(false);
+        log('App', 'CONFIG button pressed (listener/legacy) -- gestures OFF');
         resetToRef.current?.('config');
       },
     });
 
     const buttonSub = PluginManager.registerButtonListener({
       onButtonPress: (event: any) => {
+        setGestureEnabled(false);
         const raw = event?.id;
         const id = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
-        log('App', `BUTTON pressed raw=${JSON.stringify(raw)} id=${id} (listener)`);
+        log('App', `BUTTON pressed raw=${JSON.stringify(raw)} id=${id} (listener) -- gestures OFF`);
         // Clean up temp nav page on every plugin re-show
         cleanupTempLink().catch(e => log('App', `Temp link cleanup error: ${e.message}`));
         if (id === 200) {
@@ -213,7 +225,8 @@ function App(): React.JSX.Element {
     });
 
     return () => {
-      log('App', 'UNMOUNT -- removing listeners');
+      log('App', 'UNMOUNT -- removing listeners, gestures ON');
+      setGestureEnabled(true);
       global.__superTaskNavigate = null;
       if (configSub?.remove) configSub.remove();
       if (buttonSub?.remove) buttonSub.remove();
@@ -252,7 +265,7 @@ function App(): React.JSX.Element {
             </Pressable>
             <Pressable
               style={styles.debugButton}
-              onPress={() => PluginManager.closePluginView()}>
+              onPress={() => closePlugin()}>
               <Text style={styles.debugButtonText}>Close</Text>
             </Pressable>
           </View>

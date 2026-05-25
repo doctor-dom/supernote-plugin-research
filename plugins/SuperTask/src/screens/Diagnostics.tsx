@@ -15,6 +15,7 @@ import {
   PluginManager,
   NativeUIUtils,
 } from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {log} from '../utils/debug';
 import {openNote, STRATEGIES} from '../utils/noteOpener';
 
@@ -111,7 +112,7 @@ export default function Diagnostics({nav}: Props) {
     startMotionListener();
     log('Diag', 'Closing plugin view -- draw/tap on note, then reopen plugin');
     setTimeout(() => {
-      PluginManager.closePluginView();
+      closePlugin();
     }, 500);
   };
 
@@ -499,7 +500,7 @@ export default function Diagnostics({nav}: Props) {
     log('NavTest', `Intent strategy ${strategyId} (${strategy?.label}) path=${path}`);
 
     // Close plugin first, then fire intent
-    PluginManager.closePluginView();
+    closePlugin();
     setTimeout(async () => {
       try {
         const result = await openNote(path, strategyId);

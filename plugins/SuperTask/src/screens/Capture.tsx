@@ -14,6 +14,7 @@ import {
   ScrollView,
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI, PluginDocAPI} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -354,7 +355,7 @@ export default function Capture({mode, nav}: Props) {
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Capture Error</Text>
-          <Pressable style={styles.headerBtn} onPress={() => PluginManager.closePluginView()}>
+          <Pressable style={styles.headerBtn} onPress={() => closePlugin()}>
             <Text style={styles.headerBtnText}>Close</Text>
           </Pressable>
         </View>
@@ -392,7 +393,7 @@ export default function Capture({mode, nav}: Props) {
         <Text style={styles.headerTitle}>
           {mode === 'lasso' ? 'Recognizing...' : 'Reading text...'}
         </Text>
-        <Pressable style={styles.headerBtn} onPress={() => PluginManager.closePluginView()}>
+        <Pressable style={styles.headerBtn} onPress={() => closePlugin()}>
           <Text style={styles.headerBtnText}>Close</Text>
         </Pressable>
       </View>

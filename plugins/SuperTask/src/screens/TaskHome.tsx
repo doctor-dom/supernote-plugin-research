@@ -13,6 +13,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {getTasksForPage, getAllTasks as getAllRegistryTasks} from '../utils/taskRegistry';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasks, getProjects, completeTask} from '../api/todoist';
@@ -507,7 +508,7 @@ export default function TaskHome({nav}: Props) {
               <Text style={styles.headerButtonText}>Diag</Text>
             </Pressable>
           )}
-          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); PluginManager.closePluginView(); }}>
+          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); closePlugin(); }}>
             <Text style={styles.headerButtonText}>Close</Text>
           </Pressable>
         </View>

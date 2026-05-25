@@ -16,6 +16,7 @@ import {
   ScrollView,
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginNoteAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -171,9 +172,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       }
     }
 
-    // OCR -- only pass stroke elements (type 200). Non-stroke elements
-    // (text boxes, links, T badges) confuse the recognizer and cause null results.
-    const strokeElements = elements.result.filter((el: any) => el.type === 200);
+    // OCR -- only pass stroke elements (type 0 = TYPE_STROKE). Non-stroke elements
+    // (text boxes, links, pictures) confuse the recognizer and cause null results.
+    const strokeElements = elements.result.filter((el: any) => el.type === 0);
     log('QuickAdd', `recognizeElements: ${strokeElements.length} strokes of ${elements.result.length} total, size=${pageSize.width}x${pageSize.height}`);
     setStatusText('Recognizing handwriting...');
     const recognized = await withTimeout(
@@ -372,7 +373,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
 
     // If convert-to-text already ran, marks are applied -- just close.
     if (markDone !== 'none' || !createdTaskRef.current || !noteContextRef.current) {
-      PluginManager.closePluginView();
+      closePlugin();
       return;
     }
 
@@ -405,7 +406,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       log('QuickAdd', `Auto-mark on Done failed (non-fatal): ${err.message}`);
     }
 
-    PluginManager.closePluginView();
+    closePlugin();
   };
 
   const handleViewTasks = () => {
@@ -415,7 +416,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
 
   const handleDismiss = () => {
     log('QuickAdd', 'DISMISS (tap outside)');
-    PluginManager.closePluginView();
+    closePlugin();
   };
 
   // Render panel content based on phase

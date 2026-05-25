@@ -12,6 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import {PluginManager, PluginNoteAPI, PluginCommAPI} from 'sn-plugin-lib';
+import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -175,7 +176,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
   const handleDone = () => {
     log('TaskAdd', `DONE pressed captureMode=${captureMode || 'manual'}`);
     if (captureMode) {
-      PluginManager.closePluginView();
+      closePlugin();
     } else {
       nav.pop();
     }
@@ -294,7 +295,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         <Pressable onPress={() => {
           log('TaskAdd', 'BACK pressed');
           if (captureMode) {
-            PluginManager.closePluginView();
+            closePlugin();
           } else {
             nav.pop();
           }

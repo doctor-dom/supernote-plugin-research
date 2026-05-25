@@ -40,7 +40,7 @@ const DEFAULT_CONFIG = {
   defaultScreen: 'task-home',
   debugMode: false,
   markAsTextFontSize: 32,
-  lassoGestureInput: 'finger', // 'finger' or 'pen'
+  lassoGestureInput: 'finger', // 'off' or 'finger'
 };
 
 // Fields that get obfuscated on disk

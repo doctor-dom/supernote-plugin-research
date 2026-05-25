@@ -1,14 +1,12 @@
 /**
  * NoteOpener - native module for cross-note navigation experiments.
- * Tries different Android Intent strategies to open a .note file in the editor.
+ * All strategies use reactApplicationContext (bypasses HostContext interception).
  *
  * Strategies:
- *   0: Generic ACTION_VIEW (let Android resolve)
- *   1: Target NOTE app directly (com.ratta.supernote.note)
- *   2: File manager with CLEAR_TOP/NEW_TASK flags
- *   3: Data URI with wildcard MIME
- *   4: Target NOTE app alt package (com.ratta.supernote)
- *   5: Broadcast intent
+ *   0: content:// URI via FileProvider + generic ACTION_VIEW
+ *   1: Target inbox FileManagerMainActivity + only_open_file (via reactCtx)
+ *   2: Plain Uri.parse + only_open_file extra
+ *   3: Target inbox package (no activity specified)
  */
 import {NativeModules} from 'react-native';
 
@@ -22,10 +20,8 @@ export async function openNote(path, strategy = 0) {
 }
 
 export const STRATEGIES = [
-  {id: 0, label: 'Generic VIEW'},
-  {id: 1, label: 'NOTE app direct'},
-  {id: 2, label: 'FileManager+flags'},
-  {id: 3, label: 'Data URI wildcard'},
-  {id: 4, label: 'NOTE app alt pkg'},
-  {id: 5, label: 'Broadcast'},
+  {id: 0, label: 'ContentURI'},
+  {id: 1, label: 'Inbox direct'},
+  {id: 2, label: 'ParsedURI'},
+  {id: 3, label: 'LaunchPkg'},
 ];
