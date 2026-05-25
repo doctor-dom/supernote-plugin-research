@@ -49,7 +49,7 @@ Branch: `phase3-harmony`
 ### Known issues
 
 - **B-012: Phantom pen/multi-touch** -- Observed in session 22 testing but NOT in session 23. Single phantom pen event cancels gesture + 500ms cooldown blocks retries. May require sustained pen activity threshold (future fix).
-- **recognizeElements error 117** -- OCR fails on some lasso selections (16 strokes returned null). Native handwriting conversion works fine on the same content. Potentially too many strokes or unclear handwriting in the region. Needs investigation.
+- **recognizeElements error 117** -- OCR fails on some lasso selections (16 strokes, 5 strokes) with code 117 "Recognition failed." Native handwriting conversion works fine on the same content. Reproducible. Key question: what differs between our programmatic `lassoElements(rect)` + `getLassoElements()` + `recognizeElements()` path vs the native OCR? Investigate next session -- compare element data, page size params, stroke filtering.
 
 ### Key implementation details
 
