@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 22 complete.** Pen lasso mode removed entirely (source of B-008, B-009, B-010, B-011). Gesture detector simplified to finger-only. Pre-scan queue clog fixed with generation counter. Motion listener fully silent when plugin UI is open. Testing latest build on-device.
+**Session 24 complete.** Fixed recognizeElements error 117 (B-013) -- A5X EMR range mismatch. Unified OCR paths into shared `ocr.js` utility. Created Ratta feedback doc and task home redesign doc (both local, not tracked in git).
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -29,6 +29,28 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
+
+## Session 24 -- OCR fix (B-013), unified OCR utility, redesign planning
+
+Branch: `supertask-ui-redesign`
+
+### What's done
+
+1. **B-013 FIXED: recognizeElements error 117 on lower page region** -- Root cause: A5X (`getDeviceType()` returns 3) reports `getPageSize()` as 1404x1872 but its digitizer produces EMR values up to maxX=20967/maxY=15725, exceeding the documented A5X range (15819/11864) and falling within Manta range (21632/16224). The `recognizeElements` API uses the passed `size` param for EMR-to-pixel mapping; passing 1404x1872 clipped strokes in the lower page region. Fix: detect actual EMR range from element `maxX`/`maxY`, pass Manta page size (1920x2560) when values exceed A5X range. Confirmed on-device -- recognition now works across entire page.
+
+2. **Unified OCR utility (`src/utils/ocr.js`)** -- Extracted duplicated OCR pipeline from Capture.tsx and QuickAdd.tsx into a shared module. Single export `recognizeLassoElements(elements, logFn)` handles: page context fetch, element diagnostics, type filtering (strokes + text boxes only), EMR range detection, device type logging, and `recognizeElements` call with full response logging. Both screens now call this instead of maintaining parallel implementations.
+
+3. **B-012 updated** -- Gesture hang after sleep confirmed as digitizer wake transients (phantom PEN events and instant PTR_DOWN at identical coords). Not genuine multi-touch. Potential fix: debounce PEN events, ignore same-coord PTR_DOWN within 50ms.
+
+4. **Ratta feedback doc** (local, `docs/ratta-feedback.md`) -- 8 items: EMR mismatch bug, openFilePath behavior, missing goToPage/writeFile/element-fill/background-execution APIs, questions about element maxX/maxY semantics and penType=16.
+
+5. **Task home redesign doc** (local, `docs/design-task-home-v2.md`) -- Todoist feature gap analysis and prioritized plan: labels (P1), inbox workflow (P2), sections (P3), comments (P4), subtasks with multi-line OCR detection (P5), enriched TaskRow metadata (P6).
+
+### Key findings
+
+- **A5X EMR range undocumented**: Official docs list A5X max as 15819x11864, but actual device produces 20967x15725. Likely hardware revision with Manta-class digitizer.
+- **EMR-to-recognition mapping**: `recognizeElements` infers EMR range from the `size` param. Wrong size = clipped strokes = error 117 for bottom-of-page content. Top-of-page works because lower EMR values happen to stay within the assumed range.
+- **Gesture wake transients**: After device sleep, digitizer emits phantom pen proximity and duplicate-pointer events for a brief period. Current mixed-input guards treat these as real, causing repeated gesture cancellation.
 
 ## Session 23 -- lasso-add gate, structural fixes, confirmed on-device
 

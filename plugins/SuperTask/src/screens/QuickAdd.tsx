@@ -15,11 +15,12 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginCommAPI, PluginNoteAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI, PluginNoteAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
+import {recognizeLassoElements} from '../utils/ocr';
 import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
@@ -142,56 +143,19 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       return null;
     }
 
-    // Get page context
-    let filePath = '';
-    let pageNum = 0;
-    try {
-      const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
-      filePath = fp?.result || '';
-      log('QuickAdd', `filePath: ${filePath}`);
-    } catch (e: any) {
-      log('QuickAdd', `getCurrentFilePath failed: ${e.message}`);
-    }
-    try {
-      const pn = await withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum');
-      pageNum = pn?.result ?? 0;
-      log('QuickAdd', `pageNum: ${pageNum}`);
-    } catch (e: any) {
-      log('QuickAdd', `getCurrentPageNum failed: ${e.message}`);
-    }
-
-    // Get page size (required by recognizeElements)
-    let pageSize = {width: 1404, height: 1872};
-    if (filePath) {
-      try {
-        const ps = await withTimeout(PluginFileAPI.getPageSize(filePath, pageNum), 5000, 'getPageSize');
-        if (ps?.result) pageSize = ps.result;
-        else if (ps?.width && ps?.height) pageSize = ps;
-      } catch (e: any) {
-        log('QuickAdd', `getPageSize failed, using default: ${e.message}`);
-      }
-    }
-
-    // OCR -- only pass stroke elements (type 0 = TYPE_STROKE). Non-stroke elements
-    // (text boxes, links, pictures) confuse the recognizer and cause null results.
-    const strokeElements = elements.result.filter((el: any) => el.type === 0);
-    log('QuickAdd', `recognizeElements: ${strokeElements.length} strokes of ${elements.result.length} total, size=${pageSize.width}x${pageSize.height}`);
+    // OCR via shared utility (filters to supported types, logs diagnostics)
+    const qaLog = (msg: string) => log('QuickAdd', msg);
     setStatusText('Recognizing handwriting...');
-    const recognized = await withTimeout(
-      PluginCommAPI.recognizeElements(strokeElements.length > 0 ? strokeElements : elements.result, pageSize),
-      30000,
-      'recognizeElements',
-    );
+    const ocr = await recognizeLassoElements(elements.result, qaLog);
 
-    log('QuickAdd', `recognizeElements result: success=${recognized?.success} hasResult=${!!recognized?.result} raw=${JSON.stringify(recognized).slice(0, 200)}`);
-
-    if (!recognized?.success || !recognized?.result) {
+    if (!ocr.success) {
       setErrorText('Could not recognize handwriting. Try selecting clearer text.');
       setPhase('error');
       return null;
     }
 
-    const capturedContent = recognized.result.trim();
+    const capturedContent = ocr.text;
+    const {filePath, pageNum, pageSize} = ocr.pageContext;
     log('QuickAdd', `Recognized: "${capturedContent.slice(0, 60)}"`);
 
     // Get exact lasso bounds in pixel coordinates from the active selection

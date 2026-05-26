@@ -13,11 +13,12 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import {PluginManager, PluginCommAPI, PluginFileAPI, PluginDocAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI, PluginDocAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
+import {recognizeLassoElements} from '../utils/ocr';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -141,62 +142,16 @@ export default function Capture({mode, nav}: Props) {
         return null;
       }
 
-      // Get page context (needed for recognizeElements size param)
-      addTrace('Getting file path and page number...');
-      let filePath = '';
-      let pageNum = 0;
-      try {
-        const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
-        filePath = fp?.result || '';
-        addTrace(`filePath: ${filePath}`);
-      } catch (e: any) {
-        addTrace(`getCurrentFilePath failed: ${e.message}`);
-      }
-      try {
-        const pn = await withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum');
-        pageNum = pn?.result ?? 0;
-        addTrace(`pageNum: ${pageNum}`);
-      } catch (e: any) {
-        addTrace(`getCurrentPageNum failed: ${e.message}`);
-      }
-
-      // Get page size -- required by recognizeElements
-      let pageSize = {width: 1404, height: 1872}; // A5X default fallback
-      if (filePath) {
-        try {
-          addTrace(`getPageSize(${filePath}, ${pageNum})...`);
-          const ps = await withTimeout(
-            PluginFileAPI.getPageSize(filePath, pageNum),
-            5000,
-            'getPageSize',
-          );
-          addTrace(`getPageSize result: ${JSON.stringify(ps)}`);
-          if (ps?.result) {
-            pageSize = ps.result;
-          } else if (ps?.width && ps?.height) {
-            pageSize = ps;
-          }
-        } catch (e: any) {
-          addTrace(`getPageSize failed, using default: ${e.message}`);
-        }
-      }
-      addTrace(`Using page size: ${pageSize.width}x${pageSize.height}`);
-
-      addTrace(`recognizeElements: ${elements.result.length} elements, size=${pageSize.width}x${pageSize.height}...`);
-      const recognized = await withTimeout(
-        PluginCommAPI.recognizeElements(elements.result, pageSize),
-        30000,
-        'recognizeElements',
-      );
-      addTrace(`recognizeElements: success=${recognized?.success} text="${(recognized?.result || '').slice(0, 60)}"`);
-
-      if (!recognized?.success || !recognized?.result) {
+      // OCR via shared utility (filters to supported types, logs diagnostics)
+      const ocr = await recognizeLassoElements(elements.result, addTrace);
+      if (!ocr.success) {
         setError('Could not recognize handwriting. Try selecting clearer text.');
         addTrace('ERROR: recognition failed');
         return null;
       }
 
-      const content = recognized.result.trim();
+      const content = ocr.text;
+      const {filePath, pageNum, pageSize} = ocr.pageContext;
 
       // Compute bounding box from lasso elements (EMR coords) then convert to pixels
       let bounds = null;
