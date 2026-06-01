@@ -53,6 +53,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
   const [lassoGestureInput, setLassoGestureInput] = useState('finger');
   const [showTokenInfo, setShowTokenInfo] = useState(false);
+  const [showGestureInfo, setShowGestureInfo] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -69,7 +70,11 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
-      if (config.lassoGestureInput) setLassoGestureInput(config.lassoGestureInput === 'off' ? 'off' : 'finger');
+      if (config.lassoGestureInput) setLassoGestureInput(
+        config.lassoGestureInput === 'off' ? 'off'
+        : config.lassoGestureInput === 'pen-lasso' ? 'pen-lasso'
+        : 'finger'
+      );
 
       setConfigSource(getConfigSource());
 
@@ -308,18 +313,27 @@ export default function Config({onNavigate, nav}: Props) {
       <View style={s.separator} />
       <Text style={s.groupTitle}>Handwriting</Text>
 
-      <Text style={s.sectionTitle}>Gestures</Text>
+      <View style={s.inlineRow}>
+        <Text style={s.sectionTitle}>Quick Add Gesture</Text>
+        <Pressable style={s.infoBtn} onPress={() => setShowGestureInfo(true)}>
+          <Text style={s.infoBtnText}>i</Text>
+        </Pressable>
+      </View>
       <View style={s.inlineRow}>
         <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('off')}>
           <Text style={s.radio}>{lassoGestureInput === 'off' ? '(*)' : '( )'}</Text>
           <Text style={s.radioLabel}>Off</Text>
         </Pressable>
         <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('finger')}>
-          <Text style={s.radio}>{lassoGestureInput !== 'off' ? '(*)' : '( )'}</Text>
+          <Text style={s.radio}>{lassoGestureInput === 'finger' ? '(*)' : '( )'}</Text>
           <Text style={s.radioLabel}>Finger lasso</Text>
         </Pressable>
+        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('pen-lasso')}>
+          <Text style={s.radio}>{lassoGestureInput === 'pen-lasso' ? '(*)' : '( )'}</Text>
+          <Text style={s.radioLabel}>Pen lasso</Text>
+        </Pressable>
       </View>
-      <Text style={s.hint}>  Long press: open linked task. Lasso to quick-add</Text>
+      <Text style={s.hint}>  Long press on a linked task always works (any mode)</Text>
 
       <Text style={s.sectionTitle}>Mark as text font size</Text>
       <View style={s.inlineRow}>
@@ -432,6 +446,47 @@ export default function Config({onNavigate, nav}: Props) {
             </Text>
 
             <Pressable style={s.overlayCloseBtn} onPress={() => setShowTokenInfo(false)}>
+              <Text style={s.overlayCloseBtnText}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      )}
+
+      {/* Gesture info popup */}
+      {showGestureInfo && (
+        <Pressable style={s.overlayCenter} onPress={() => setShowGestureInfo(false)}>
+          <Pressable style={s.overlayModal} onPress={() => {}}>
+            <Text style={s.overlayTitle}>Quick Add Gestures</Text>
+            <Text style={s.overlayHint}>
+              Choose how to quickly capture handwriting as a task without using the lasso toolbar button.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>Finger lasso</Text>
+            <Text style={s.methodBody}>
+              Hold one finger on the page for about half a second, then drag to draw a selection area. When you lift your finger, the selected content is sent to Quick Add.{'\n'}
+              {'\n'}
+              The selection is invisible while you draw -- you won't see the lasso outline. Best for quickly grabbing a rough area of handwriting.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>Pen lasso</Text>
+            <Text style={s.methodBody}>
+              Hold one finger on the screen, then use your pen to draw a lasso selection as you normally would. You'll see the native lasso outline as you draw. When you lift your finger, the selected content is sent to Quick Add.{'\n'}
+              {'\n'}
+              This gives you the visible lasso feedback you're used to, with the speed of skipping the toolbar button.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>Long press (always on)</Text>
+            <Text style={s.methodBody}>
+              Long press (~1 second) on any content linked to a task to open its detail view. This works regardless of which gesture mode is selected.
+            </Text>
+
+            <Pressable style={s.overlayCloseBtn} onPress={() => setShowGestureInfo(false)}>
               <Text style={s.overlayCloseBtnText}>Close</Text>
             </Pressable>
           </Pressable>

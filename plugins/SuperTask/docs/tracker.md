@@ -26,9 +26,9 @@
 | F-011 | Done | View Note from TaskDetail | -- | Button in "Captured from" section. Same note: closes plugin with page hint. Different note: tries openFilePath (opens file manager, not editor), falls back to showing path. |
 | F-012 | Done | Long-press gesture to open task from note | `../../docs/gesture-research.md` | Gesture detector in `gestureDetector.js`, registered at init (index.js). Pre-scans links on finger DOWN, navigates via `global.__superTaskNavigate` (re-show) or `getInitialScreen` (first mount). Single task API + parallel fetch. |
 | F-013 | Done | Cross-note navigation | -- | Temp link at top-center of current page with task name. Auto-cleanup via `deleteElements` on next plugin open. Full path stored in Todoist description + task registry. |
-| F-014 | Backlog | Edge swipe to launch task home | -- | Swipe from edge (left, right, or bottom) opens SuperTask task home. Non-collision gesture for quick access without toolbar button. |
-| F-015 | Done | Quick lasso-add gesture (finger) | `design-gesture-guards.md` | Hold 400ms then drag to select and open QuickAdd. Finger only (pen mode removed). Pre-scan gate blocks lasso-add on content with existing supertask link. Config: off/finger lasso. |
-| F-016 | Backlog | Native lasso + gesture to quick-add | -- | User does native pen lasso, then triggers QuickAdd via gesture on the selection. Options: two-finger tap, or single finger held during lasso (some pens have buttons that simulate finger input). Avoids custom pen gesture complexity. Needs research: can we detect these gestures on an active lasso selection? |
+| F-014 | Backlog | Triple-finger swipe to launch task home | -- | Three-finger swipe up from bottom opens SuperTask task home. Configurable target (default project, specific view, etc). Need to test whether Supernote reserves three-finger gestures. Next session. |
+| F-015 | Done | Quick lasso-add gesture (finger) | `design-gesture-guards.md` | Hold 400ms then drag to select and open QuickAdd. Finger only (pen mode removed). Pre-scan gate blocks lasso-add on content with existing supertask link. Config: off/finger/pen-lasso. |
+| F-016 | Done | Pen lasso + finger hold to quick-add | -- | Hold finger on screen, draw native lasso with pen (visible selection), lift finger. Plugin intercepts via `getLassoRect()` check on finger UP -- if native lasso is active, opens QuickAdd. Error 904 (no lasso, just writing) is silently ignored. Config toggle: "Pen lasso" in Settings > Quick Add Gesture. Confirmed on-device. |
 
 ## Tasks
 

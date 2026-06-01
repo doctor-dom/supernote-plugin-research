@@ -47,6 +47,7 @@ let _sub = null;               // Motion listener subscription
 let _fingerDown = null;        // {x, y, time} of last finger DOWN
 let _enabled = true;           // Can be toggled off
 let _configOff = false;        // True when config is 'off' -- overrides _enabled
+let _gestureMode = 'finger';   // 'finger' or 'pen-lasso' -- controls which quick-add gesture is active
 let _actionInProgress = false; // Re-entry guard for async handlers
 let _scanGeneration = 0;       // Increments on each DOWN; stale pre-scans bail out
 
@@ -76,12 +77,27 @@ export function initGestureDetector() {
 
       // Only handle finger events (toolType 1)
       if (msg.toolType !== 1) {
-        // Pen during finger hold -> cancel gesture (catches gesture erase,
-        // native two-finger lasso where pen events follow finger down)
-        if (_fingerDown && !_mixedInput) {
-          log('Gesture', `PEN during FINGER hold -- cancelling`);
-          _mixedInput = true;
-          _mixedCancelTime = Date.now();
+        if (_fingerDown) {
+          if (_gestureMode === 'pen-lasso') {
+            // Pen-lasso mode: track pen activity for lasso interception
+            if (!_mixedInput) {
+              log('Gesture', `PEN during FINGER hold -- tracking pen-lasso-assist`);
+              _mixedInput = true;
+            }
+            _penAssistEvents++;
+            const penAction = msg.action & 0xff;
+            if (penAction === 1) { // PEN UP
+              _penAssistLastUp = Date.now();
+              log('Gesture', `PEN UP #${_penAssistEvents} during finger hold (finger held ${Date.now() - _fingerDown.time}ms)`);
+            }
+          } else {
+            // Finger mode: pen during finger hold cancels the gesture
+            if (!_mixedInput) {
+              log('Gesture', `PEN during FINGER hold -- cancelling`);
+              _mixedInput = true;
+              _mixedCancelTime = Date.now();
+            }
+          }
         }
         return;
       }
@@ -159,12 +175,14 @@ function applyGestureConfig(input) {
   if (input === 'off') {
     _configOff = true;
     _enabled = false;
+    _gestureMode = 'finger';
     cancelGesture();
     log('Gesture', 'Config: gestures OFF');
   } else {
     _configOff = false;
     _enabled = true;
-    log('Gesture', 'Config: gestures ON');
+    _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : 'finger';
+    log('Gesture', `Config: gestures ON, mode=${_gestureMode}`);
   }
 }
 
@@ -180,6 +198,12 @@ let _preScanResult = null;   // Sync cache of resolved pre-scan (for fast-path g
 let _lassoMode = false;      // Whether we've entered lasso-drawing mode
 let _lassoBbox = null;       // {minX, minY, maxX, maxY} bounding box of movement
 let _mixedCancelTime = 0;    // Timestamp of last mixed-input cancellation
+
+// --- Pen-lasso-assist probe ---
+// Diagnostic: when finger is held and pen events arrive, track pen activity
+// so we can probe getLassoElements() on finger UP to test native lasso interception.
+let _penAssistEvents = 0;      // Count of PEN events seen during finger hold
+let _penAssistLastUp = 0;      // Timestamp of last PEN UP during finger hold
 
 function onFingerDown(x, y) {
   // Suppress new gesture starts shortly after a mixed-input cancellation.
@@ -206,6 +230,17 @@ function onFingerDown(x, y) {
 
 function onFingerMove(x, y) {
   if (!_fingerDown || _mixedInput) return;
+
+  // In pen-lasso mode, finger movement is irrelevant (pen does the lasso)
+  // but we still track drift to prevent false long-press detection
+  if (_gestureMode === 'pen-lasso') {
+    const dx = x - _fingerDown.x;
+    const dy = y - _fingerDown.y;
+    if (Math.sqrt(dx * dx + dy * dy) > MAX_DRIFT_PX) {
+      _driftExceeded = true;
+    }
+    return;
+  }
 
   // Already in lasso mode -- just extend the bounding box
   if (_lassoMode) {
@@ -276,7 +311,15 @@ function onFingerUp(x, y) {
   }
 
   if (_mixedInput) {
-    log('Gesture', `UP ignored: mixed input detected during gesture`);
+    if (_gestureMode === 'pen-lasso' && _penAssistEvents > 0 && _penAssistLastUp > 0) {
+      // Pen-lasso mode: finger was held while pen drew a lasso.
+      // Check if a native lasso selection is available.
+      const sincePenUp = Date.now() - _penAssistLastUp;
+      log('Gesture', `PEN-LASSO-ASSIST: finger held ${held}ms, ${_penAssistEvents} pen events, pen UP was ${sincePenUp}ms ago`);
+      handlePenLassoAssist();
+    } else {
+      log('Gesture', `UP ignored: mixed input (mode=${_gestureMode})`);
+    }
     resetState();
     return;
   }
@@ -299,6 +342,8 @@ function resetState() {
   _lassoMode = false;
   _lassoBbox = null;
   _preScanResult = null;
+  _penAssistEvents = 0;
+  _penAssistLastUp = 0;
 }
 
 function cancelGesture() {
@@ -379,6 +424,42 @@ async function preScanLinks(x, y, generation) {
   } catch (e) {
     log('Gesture', `Pre-scan error: ${e.message}`);
     return null;
+  }
+}
+
+// --- Pen-lasso-assist action ---
+// When finger was held during a pen lasso, check if native lasso data is
+// available. If getLassoElements() returns elements, open QuickAdd.
+// If it returns error 904 (no lasso), the user was just writing -- do nothing.
+
+async function handlePenLassoAssist() {
+  if (_actionInProgress) {
+    log('Gesture', 'handlePenLassoAssist: skipped, action already in progress');
+    return;
+  }
+  _actionInProgress = true;
+
+  try {
+    // Quick check: is a native lasso selection active?
+    // If not (error 904 = no lasso), the user was just writing -- bail silently.
+    const rectResult = await PluginCommAPI.getLassoRect();
+
+    if (!rectResult?.success || !rectResult.result) {
+      const code = rectResult?.error?.code;
+      log('Gesture', `PEN-LASSO-ASSIST: no active lasso (error=${code || 'none'}) -- ignoring`);
+      return;
+    }
+
+    const rect = rectResult.result;
+    log('Gesture', `PEN-LASSO-ASSIST: lasso active at l=${rect.left} t=${rect.top} r=${rect.right} b=${rect.bottom} -- opening QuickAdd`);
+
+    // Open QuickAdd -- it will call getLassoElements() itself
+    global.__superTaskDeepLink = {action: 'lasso-add'};
+    openPluginView();
+  } catch (e) {
+    log('Gesture', `handlePenLassoAssist error: ${e.message}`);
+  } finally {
+    _actionInProgress = false;
   }
 }
 

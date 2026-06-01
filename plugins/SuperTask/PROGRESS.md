@@ -4,7 +4,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 24 complete.** Fixed recognizeElements error 117 (B-013) -- A5X EMR range mismatch. Unified OCR paths into shared `ocr.js` utility. Created Ratta feedback doc and task home redesign doc (both local, not tracked in git).
+**Session 25 complete.** Pen lasso quick-add (F-016) confirmed and wired up. Repo docs overhaul: new README, SuperTask user README, SDK reference renamed. First public beta release (v0.1.0-beta) on GitHub. Ratta feedback refined.
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -29,6 +29,40 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 | 4: Subtasks | Backlog | parent_id support, subtask list in detail view |
 | 6: Doc capture | Backlog | PDF text selection, same flow as lasso |
 | 8: Polish | Backlog | Loading states, error handling, empty states |
+
+## Session 25 -- Pen lasso quick-add (F-016), docs overhaul, beta release
+
+Branch: `main`
+
+### What's done
+
+1. **F-016 DONE: Pen lasso + finger hold to quick-add** -- Hold finger on screen, draw native lasso with pen (user sees the visible lasso outline), lift finger. On finger UP, gesture detector calls `getLassoRect()` to check if a native lasso selection is active. If yes, opens QuickAdd with the lassoed content. If no lasso (error 904, user was just writing), silently ignored. Key discovery: `getLassoElements()` and `getLassoRect()` return data from a native lasso even when the plugin wasn't opened via the lasso toolbar button. Confirmed on-device.
+
+2. **Config: Quick Add Gesture toggle** -- Three options in Settings > Preferences: Off, Finger lasso (existing hold-drag), Pen lasso (new). Info popup (i) explains how each mode works. Long press to open linked tasks works in all modes.
+
+3. **Repo docs overhaul** -- Renamed `README.md` to `SDK-REFERENCE.md` (full API reference). New repo `README.md` (standard landing page). New `plugins/SuperTask/README.md` (user-facing: install, setup with 3 token entry methods, usage, config, limitations).
+
+4. **Ratta feedback refined** -- Restructured from SuperTask-centric blockers to general SDK feedback: what we noticed, why it matters for any plugin, potential use cases, our workaround, suggestion. 8 items covering EMR mismatch, openFilePath, goToPage, writeFile, element fill, background execution, maxX/maxY semantics, penType 16.
+
+5. **First public beta release** -- v0.1.0-beta on GitHub with `.snplg` attached. Repo made public.
+
+6. **Merged `supertask-ui-redesign` into `main`** -- All development on main going forward, no complex branching.
+
+### Key findings
+
+- **Native lasso interception works.** `getLassoElements()` and `getLassoRect()` are available immediately after a pen-lasso completes, even without the plugin being opened via the lasso bar button. The lasso context persists until consumed or the plugin UI opens.
+- **`getLassoRect()` is the lightweight probe.** No elements to recycle, just a rect check. Let QuickAdd handle the full `getLassoElements()` call.
+- **Error 904 is the clean signal.** When user was writing (not lassoing), `getLassoRect()` returns 904 "No lasso action." No false positives observed.
+- **Lasso context consumed after first read + plugin open.** Delayed probes (t=200ms, t=500ms) returned empty after the plugin UI mounted. Opening QuickAdd immediately on finger UP is the right timing.
+
+### Next session
+
+- **F-014: Triple-finger swipe to open task home** -- Research whether Supernote reserves three-finger gestures. Test detection via motion listener.
+- **B-004: Project filter not honored** -- Selected projects in settings aren't filtering today/upcoming/projects views.
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 25, pen lasso quick-add + gesture config
 
 ## Session 24 -- OCR fix (B-013), unified OCR utility, redesign planning
 
