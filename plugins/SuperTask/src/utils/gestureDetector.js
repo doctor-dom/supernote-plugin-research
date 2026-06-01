@@ -1,7 +1,7 @@
 /**
  * Gesture Detector -- finger gesture detection for SuperTask.
  *
- * Two gestures detected from a single motion listener:
+ * Three gesture types detected from a single motion listener:
  *
  * 1. LONG PRESS (static hold):
  *    - Finger down, hold >= 800ms, NO movement, finger up
@@ -13,8 +13,14 @@
  *    - Bounding box of movement -> programmatic lassoElements -> QuickAdd
  *    - Minimum 50x50px bbox required to avoid tiny accidental selections
  *
+ * 3. BEZEL SWIPE (multi-finger swipe from bottom edge):
+ *    - 2+ fingers swipe up from the bottom 1% of the canvas (bezel-in)
+ *    - Quick motion (< 600ms), upward displacement > 150px
+ *    - Opens task home. No conflict with other gestures (distinct origin zone).
+ *
  * Differentiator: movement that starts BEFORE 400ms = normal touch (neither).
  * Movement that starts AFTER 400ms hold = lasso-add. No movement = long press.
+ * DOWN at bottom edge = bezel swipe candidate (separate tracking path).
  *
  * Events only fire when the plugin UI is dismissed (full-screen RN view
  * intercepts all touches). The listener stays active across UI open/close.
@@ -42,6 +48,11 @@ const MAX_DRIFT_PX = 20;      // Movement threshold to differentiate gestures
 const MIN_LASSO_SIZE = 50;    // Minimum bbox dimension to count as valid lasso
 const HIT_PADDING_PX = 30;    // Extra padding around link bounds for hit test
 
+// --- Bezel swipe config ---
+const BEZEL_EDGE_PCT = 0.01;     // Bottom 1% of canvas = bezel entry zone
+const BEZEL_SWIPE_MIN_PX = 150;  // Minimum upward displacement to count as swipe
+const BEZEL_SWIPE_MAX_MS = 1200; // Maximum duration (e-ink touch is slower than phone)
+
 // --- Module state ---
 let _sub = null;               // Motion listener subscription
 let _fingerDown = null;        // {x, y, time} of last finger DOWN
@@ -50,6 +61,17 @@ let _configOff = false;        // True when config is 'off' -- overrides _enable
 let _gestureMode = 'finger';   // 'finger' or 'pen-lasso' -- controls which quick-add gesture is active
 let _actionInProgress = false; // Re-entry guard for async handlers
 let _scanGeneration = 0;       // Increments on each DOWN; stale pre-scans bail out
+
+// --- Page size cache (for bezel edge detection) ---
+// Fetched lazily on first bezel-candidate DOWN. null = not yet fetched.
+// If fetch fails, bezel detection is disabled (fail closed, no hardcoded default).
+let _pageHeight = null;        // Canvas height in pixels (device-specific)
+let _pageSizeFetched = false;  // Whether we've attempted the fetch
+
+// --- Bezel swipe state ---
+// Completely separate tracking path from long-press/lasso.
+// Active when initial DOWN is in the bottom edge zone.
+let _bezelSwipe = null;        // {startY, startTime, maxPointers, lastY} or null
 
 /**
  * Initialize the gesture detector. Call once at plugin startup.
@@ -67,6 +89,9 @@ export function initGestureDetector() {
   loadConfig().then(config => {
     applyGestureConfig(config.lassoGestureInput);
   }).catch(() => {});
+
+  // Pre-fetch page size for bezel edge detection
+  fetchPageHeight();
 
   let _eventCount = 0;
   _sub = PluginManager.registerMotionListener(1, {
@@ -115,6 +140,22 @@ export function initGestureDetector() {
 
       const baseAction = msg.action & 0xff;
 
+      // --- Bezel swipe path (completely separate from long-press/lasso) ---
+      if (_bezelSwipe) {
+        if (baseAction === 5) {
+          // Additional finger -- expected for multi-finger bezel swipe
+          const ptrIdx = (msg.action >> 8) & 0xff;
+          _bezelSwipe.maxPointers = Math.max(_bezelSwipe.maxPointers, ptrIdx + 1);
+          log('Gesture', `Bezel swipe: PTR_DOWN[${ptrIdx}], maxPointers=${_bezelSwipe.maxPointers}`);
+        } else if (baseAction === 2) {
+          _bezelSwipe.lastY = y;
+        } else if (baseAction === 1 || baseAction === 3) {
+          onBezelSwipeEnd(y);
+        }
+        return;
+      }
+
+      // --- Standard gesture path (long-press / lasso-add) ---
       if (baseAction === 0) {
         onFingerDown(msg.x, msg.y);
       } else if (baseAction === 2) {
@@ -122,9 +163,9 @@ export function initGestureDetector() {
       } else if (baseAction === 1) {
         onFingerUp(msg.x, msg.y);
       } else if (baseAction === 5) {
-        // Additional pointer DOWN (multi-touch) -- cancel, not our gesture
+        // Additional pointer DOWN (multi-touch) -- cancel single-finger gesture
         if (_fingerDown) {
-          log('Gesture', 'Multi-touch detected (PTR_DOWN) -- cancelling');
+          log('Gesture', 'Multi-touch detected (PTR_DOWN) -- cancelling single-finger gesture');
           cancelGesture();
         }
       } else if (baseAction === 3) {
@@ -159,6 +200,8 @@ export function setGestureEnabled(enabled) {
   }
   _enabled = enabled;
   if (!enabled) cancelGesture();
+  // If re-enabled and page height not yet cached, try again
+  if (enabled && !_pageHeight) fetchPageHeight();
   log('Gesture', `Enabled: ${enabled}`);
 }
 
@@ -210,6 +253,18 @@ function onFingerDown(x, y) {
   const MIXED_COOLDOWN_MS = 500;
   if (Date.now() - _mixedCancelTime < MIXED_COOLDOWN_MS) {
     log('Gesture', `DOWN suppressed: within ${MIXED_COOLDOWN_MS}ms of mixed-input cancel`);
+    return;
+  }
+
+  // --- Bezel swipe detection: DOWN at bottom edge enters separate path ---
+  if (_pageHeight && y > _pageHeight * (1 - BEZEL_EDGE_PCT)) {
+    _bezelSwipe = {
+      startY: y,
+      startTime: Date.now(),
+      maxPointers: 1,
+      lastY: y,
+    };
+    log('Gesture', `BEZEL DOWN at (${Math.round(x)},${Math.round(y)}) pageHeight=${_pageHeight} -- tracking swipe`);
     return;
   }
 
@@ -349,6 +404,96 @@ function resetState() {
 function cancelGesture() {
   resetState();
   _linkScanPromise = null;
+  _bezelSwipe = null;
+}
+
+// --- Page size fetch (for bezel edge threshold) ---
+
+async function fetchPageHeight() {
+  log('Gesture', `fetchPageHeight called (fetched=${_pageSizeFetched}, current=${_pageHeight})`);
+  if (_pageSizeFetched && _pageHeight) return;
+  _pageSizeFetched = true;
+
+  try {
+    const fpResult = await PluginCommAPI.getCurrentFilePath();
+    const filePath = fpResult?.result || '';
+    if (!filePath) {
+      log('Gesture', 'fetchPageHeight: no active note, will retry later');
+      _pageSizeFetched = false;
+      return;
+    }
+
+    const pnResult = await PluginCommAPI.getCurrentPageNum();
+    const pageNum = pnResult?.result ?? 0;
+
+    log('Gesture', `fetchPageHeight: calling getPageSize(${filePath}, ${pageNum})`);
+    const sizeResult = await PluginFileAPI.getPageSize(filePath, pageNum);
+    log('Gesture', `fetchPageHeight: raw result=${JSON.stringify(sizeResult)}`);
+
+    if (sizeResult?.result?.height) {
+      _pageHeight = sizeResult.result.height;
+    } else if (sizeResult?.height) {
+      _pageHeight = sizeResult.height;
+    }
+
+    if (_pageHeight) {
+      log('Gesture', `Page height cached: ${_pageHeight}px`);
+    } else {
+      log('Gesture', `fetchPageHeight: could not extract height`);
+      _pageSizeFetched = false;
+    }
+  } catch (e) {
+    log('Gesture', `fetchPageHeight failed: ${e.message}`);
+    _pageSizeFetched = false;
+  }
+}
+
+// --- Bezel swipe detection ---
+
+function onBezelSwipeEnd(y) {
+  if (!_bezelSwipe) return;
+
+  const {startY, startTime, maxPointers, lastY} = _bezelSwipe;
+  const duration = Date.now() - startTime;
+  const displacement = startY - y; // positive = upward
+  _bezelSwipe = null;
+
+  log('Gesture', `BEZEL UP: pointers=${maxPointers} displacement=${Math.round(displacement)}px duration=${duration}ms`);
+
+  if (maxPointers < 2) {
+    log('Gesture', 'Bezel swipe: single finger, ignoring');
+    return;
+  }
+
+  if (duration > BEZEL_SWIPE_MAX_MS) {
+    log('Gesture', 'Bezel swipe: too slow, ignoring');
+    return;
+  }
+
+  if (displacement < BEZEL_SWIPE_MIN_PX) {
+    log('Gesture', 'Bezel swipe: not enough upward travel, ignoring');
+    return;
+  }
+
+  log('Gesture', `BEZEL SWIPE DETECTED: ${maxPointers} fingers, ${Math.round(displacement)}px up in ${duration}ms`);
+  handleBezelSwipe();
+}
+
+async function handleBezelSwipe() {
+  if (_actionInProgress) {
+    log('Gesture', 'handleBezelSwipe: skipped, action already in progress');
+    return;
+  }
+  _actionInProgress = true;
+
+  try {
+    global.__superTaskDeepLink = {action: 'this-page'};
+    openPluginView();
+  } catch (e) {
+    log('Gesture', `handleBezelSwipe error: ${e.message}`);
+  } finally {
+    _actionInProgress = false;
+  }
 }
 
 // --- Pre-scan: runs on finger DOWN, overlapping with hold time ---
@@ -373,6 +518,21 @@ async function preScanLinks(x, y, generation) {
     }
 
     log('Gesture', `Pre-scan: page ${pageNum} of ${filePath} at (${Math.round(x)},${Math.round(y)})`);
+
+    // Opportunistic page height cache: if fetchPageHeight failed at init,
+    // piggyback on the pre-scan context (which we know works)
+    if (!_pageHeight) {
+      try {
+        const sizeResult = await PluginFileAPI.getPageSize(filePath, pageNum);
+        if (sizeResult?.result?.height) _pageHeight = sizeResult.result.height;
+        else if (sizeResult?.height) _pageHeight = sizeResult.height;
+        if (_pageHeight) log('Gesture', `Page height cached (via pre-scan): ${_pageHeight}px`);
+      } catch (e) {
+        log('Gesture', `Pre-scan pageHeight fallback failed: ${e.message}`);
+      }
+    }
+
+    if (generation !== _scanGeneration) return null; // stale after page size fetch
 
     const elemResult = await PluginFileAPI.getElements(pageNum, filePath);
 

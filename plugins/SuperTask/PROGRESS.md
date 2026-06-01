@@ -4,7 +4,39 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 25 complete.** Pen lasso quick-add (F-016) confirmed and wired up. Repo docs overhaul: new README, SuperTask user README, SDK reference renamed. First public beta release (v0.1.0-beta) on GitHub. Ratta feedback refined.
+**Session 26 in progress.** Bezel swipe gesture (F-014) confirmed on-device. Next: add configuration for swipe target (tab, project).
+
+## Session 26 -- Bezel swipe gesture (F-014), Nomad device audit
+
+Branch: `phase3-harmony`
+
+### What's done
+
+1. **F-014 CONFIRMED: Bezel swipe to open task home** -- Multi-finger (2+) swipe up from the bottom 1% of the canvas opens task home. Detection: DOWN in bottom edge zone + PTR_DOWN tracking (not cancelling) + upward displacement > 150px + duration < 1200ms. Page height fetched dynamically via `getPageSize()` (no hardcoded default). Confirmed on-device: 3 fingers, 370-450ms, 470-780px displacement. Repeatable.
+
+2. **Page height caching strategy** -- Init-time `fetchPageHeight()` fails silently (note context not ready at startup). Fix: pre-scan fallback caches page height on first canvas interaction. Real users always interact before swiping, so first-swipe edge case is testing-only.
+
+3. **B-014 documented: Hardcoded A5X page size may break Nomad** -- Found multiple locations defaulting to 1404x1872: `ocr.js:91`, `Capture.tsx:46-59` (EMR constants), `tempLinkNav.js:96-97`. These could cause incorrect lasso bounds and recognition failures on Nomad (deviceType=4). Gesture detector itself is safe (uses runtime page height, fail-closed). Need Nomad device data to confirm.
+
+4. **Build caching discovery** -- Supernote plugin system caches extracted JS bundles aggressively. Version bump (versionCode) alone doesn't force refresh. Reliable deploy requires: bump versionCode + clean `build/generated` + `build/outputs` + device reboot or full uninstall/reinstall cycle.
+
+### Key findings
+
+- **`fetchPageHeight` at init fails** because `getCurrentFilePath()` returns empty before the note is fully loaded. The pre-scan fallback (piggybacks on first gesture's file path fetch) resolves this cleanly.
+- **Bezel edge threshold works at 1%** -- y > pageHeight * 0.99. On A5X that's y > ~1853. Touches at y=1868-1871 consistently trigger it.
+- **3-finger swipes from bottom edge have zero conflicts** with existing gestures (long press, lasso-add) or system gestures. The bezel zone is too narrow for accidental activation.
+- **`getPageSize()` returns `{result: {width, height}}`** on A5X -- confirmed from pre-scan fallback log.
+
+### Next session
+
+- **F-014 config: bezel swipe target** -- Add settings for what the swipe opens: specific tab (today/upcoming/projects), specific project, or default screen. Add to Settings > Preferences alongside the Quick Add Gesture toggle.
+- **B-014: Nomad testing** -- Get `getDeviceType()`, `getPageSize()`, and element maxX/maxY from a Nomad user to confirm dimensions and EMR range. Then fix hardcoded defaults.
+- **B-004: Project filter not honored** -- Selected projects in settings aren't filtering today/upcoming/projects views.
+- **Remove verbose fetchPageHeight diagnostics** -- The extra logging was for debugging; strip it down to essential logs only.
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- v0.2.1 (versionCode 3), bezel swipe + diagnostic logging
 
 | Phase | Status | Summary |
 |-------|--------|---------|
