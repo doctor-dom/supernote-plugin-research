@@ -46,8 +46,11 @@ function getInitialScreen(): ScreenEntry {
     if (deepLink.action === 'lasso-add') {
       return {name: 'capture-lasso', id: 0};
     }
+    if (deepLink.action === 'view-project' && deepLink.projectId) {
+      return {name: 'project-view', params: {projectId: deepLink.projectId, projectName: deepLink.projectName || 'Project'}, id: 0};
+    }
     if (deepLink.action === 'this-page') {
-      return {name: 'task-home', params: {focusTab: 'today'}, id: 0};
+      return {name: 'task-home', params: {focusTab: deepLink.focusTab || 'today'}, id: 0};
     }
   }
 

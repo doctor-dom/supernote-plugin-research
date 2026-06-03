@@ -117,7 +117,7 @@ export default function ProjectView({nav, projectId, projectName}: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => { log('ProjectView', 'BACK pressed'); nav.pop(); }}>
+        <Pressable style={styles.backButton} onPress={() => { log('ProjectView', 'BACK pressed'); nav.canGoBack ? nav.pop() : nav.resetTo('task-home'); }}>
           <Text style={styles.backText}>{'< Back'}</Text>
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>{projectName}</Text>

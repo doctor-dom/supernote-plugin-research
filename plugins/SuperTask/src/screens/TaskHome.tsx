@@ -54,6 +54,7 @@ export default function TaskHome({nav}: Props) {
   const [registryPageTasks, setRegistryPageTasks] = useState<any[]>([]);
   const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
   const [debugMode, setDebugMode] = useState(false);
+  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
 
   // Load default tab from config and detect current page on mount
   useEffect(() => {
@@ -63,6 +64,7 @@ export default function TaskHome({nav}: Props) {
         setActiveTab(config.defaultTab);
       }
       if (config.debugMode) setDebugMode(true);
+      if (config.enabledProjectIds?.length > 0) setEnabledProjectIds(config.enabledProjectIds);
     });
 
     // Detect current note/page, scan for supertask links, read registry
@@ -383,14 +385,17 @@ export default function TaskHome({nav}: Props) {
       projectCounts[pid] = (projectCounts[pid] || 0) + 1;
     });
 
-    const items = projectList
-      .filter(p => (projectCounts[p.id] || 0) > 0)
-      .map(p => ({...p, taskCount: projectCounts[p.id] || 0}));
+    // If user selected specific projects in settings, show only those (even if empty)
+    // Otherwise show all projects (even if empty)
+    const filtered = enabledProjectIds.length > 0
+      ? projectList.filter(p => enabledProjectIds.includes(p.id))
+      : projectList;
+    const items = filtered.map(p => ({...p, taskCount: projectCounts[p.id] || 0}));
 
     if (items.length === 0) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>No projects with active tasks</Text>
+          <Text style={styles.emptyText}>No projects</Text>
         </View>
       );
     }

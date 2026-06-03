@@ -487,7 +487,27 @@ async function handleBezelSwipe() {
   _actionInProgress = true;
 
   try {
-    global.__superTaskDeepLink = {action: 'this-page'};
+    const config = await loadConfig();
+    const target = config.bezelSwipeTarget || 'default';
+    log('Gesture', `Bezel config: target=${target} projectId=${config.bezelSwipeProjectId || 'null'} projectName=${config.bezelSwipeProjectName || 'null'}`);
+
+    if (target === 'project' && config.bezelSwipeProjectId) {
+      log('Gesture', `Bezel swipe -> project: ${config.bezelSwipeProjectName || config.bezelSwipeProjectId}`);
+      global.__superTaskDeepLink = {
+        action: 'view-project',
+        projectId: config.bezelSwipeProjectId,
+        projectName: config.bezelSwipeProjectName || 'Project',
+      };
+    } else {
+      // Tab targets: 'default' uses the user's defaultTab setting, others are explicit
+      // If target is 'project' but no projectId configured, fall back to default tab
+      const focusTab = (target === 'default' || target === 'project')
+        ? (config.defaultTab || 'today')
+        : target;
+      log('Gesture', `Bezel swipe -> tab: ${focusTab}`);
+      global.__superTaskDeepLink = {action: 'this-page', focusTab};
+    }
+
     openPluginView();
   } catch (e) {
     log('Gesture', `handleBezelSwipe error: ${e.message}`);
@@ -730,8 +750,13 @@ async function openPluginView() {
         global.__superTaskNavigate('deep-link-loading', {taskId: deepLink.taskId});
       } else if (deepLink.action === 'lasso-add') {
         global.__superTaskNavigate('capture-lasso');
+      } else if (deepLink.action === 'view-project' && deepLink.projectId) {
+        global.__superTaskNavigate('project-view', {
+          projectId: deepLink.projectId,
+          projectName: deepLink.projectName || 'Project',
+        });
       } else if (deepLink.action === 'this-page') {
-        global.__superTaskNavigate('task-home', {focusTab: 'today'});
+        global.__superTaskNavigate('task-home', {focusTab: deepLink.focusTab || 'today'});
       }
     }
     // If App isn't mounted yet, getInitialScreen() reads the global on mount.
