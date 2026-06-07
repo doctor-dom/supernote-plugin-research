@@ -242,26 +242,17 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     const noteContext = noteContextRef.current;
     if (!noteContext) return;
     const {bounds} = noteContext;
+    const task = createdTaskRef.current;
     log('QuickAdd', `CONVERT TO TEXT pressed`);
     setMarking(true);
 
     try {
-      // Step 1: Delete handwriting on the STILL-ACTIVE original lasso.
-      log('QuickAdd', 'Calling deleteLassoElements (original lasso)');
+      // Step 1: Delete handwriting strokes from the still-active lasso
+      log('QuickAdd', 'deleteLassoElements');
       const deleteResult = await PluginCommAPI.deleteLassoElements();
-      log('QuickAdd', `deleteLassoElements result: ${JSON.stringify(deleteResult)}`);
+      log('QuickAdd', `deleteLassoElements: ${JSON.stringify(deleteResult)}`);
 
-      // Step 2: Save and reload to flush deletion to display
-      await PluginNoteAPI.saveCurrentNote();
-      log('QuickAdd', 'saveCurrentNote after delete');
-      try {
-        const reloadResult = await PluginCommAPI.reloadFile();
-        log('QuickAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
-      } catch (e: any) {
-        log('QuickAdd', `reloadFile failed: ${e.message}`);
-      }
-
-      // Step 3: Insert typed text where handwriting was
+      // Step 2: Insert text + supertask link in one call (replaces 5 separate calls)
       const fontSize = markAsTextFontSize;
       const textHeight = Math.round(fontSize * 1.4);
       const textContent = content.trim();
@@ -273,49 +264,33 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         right: bounds.left + textWidth,
         bottom: bounds.top + textHeight,
       };
-      log('QuickAdd', `insertText: l=${textRect.left} t=${textRect.top} fontSize=${fontSize}`);
-      await PluginNoteAPI.insertText({
-        textContentFull: content.trim(),
-        textRect,
+      const destPath = `supertask://task/${task?.id}`;
+      log('QuickAdd', `insertTextLink: l=${textRect.left} t=${textRect.top} fontSize=${fontSize} dest=${destPath}`);
+      const linkResult = await PluginNoteAPI.insertTextLink({
+        destPath,
+        destPage: 0,
+        style: 2,
+        linkType: 4,
+        rect: textRect,
         fontSize,
-        textBold: 0,
-        textAlign: 0,
-        textFrameStyle: 0,
-        textEditable: 0,
-        textItalics: 0,
-        textFrameWidthType: 1,
+        fullText: textContent,
+        showText: textContent,
+        isItalic: 0,
       });
+      log('QuickAdd', `insertTextLink: ${JSON.stringify(linkResult)}`);
 
-      // Step 4: Save after text insertion
+      // Step 3: Save to flush both delete + insert
       await PluginNoteAPI.saveCurrentNote();
-      log('QuickAdd', 'saveCurrentNote after convert');
+      log('QuickAdd', 'saveCurrentNote');
 
-      // Step 5: Lasso text to apply supertask link, then re-lasso for repositioning
+      // Step 4: Re-lasso the text so user can reposition after plugin closes
       try {
         const lr = lassoRect(textRect);
-        log('QuickAdd', `Lasso for link: ${JSON.stringify(lr)}`);
-        const linkLasso = await (PluginCommAPI as any).lassoElements(lr);
-        if (linkLasso?.success) {
-          const task = createdTaskRef.current;
-          const destPath = `supertask://task/${task?.id}`;
-          log('QuickAdd', `setLassoStrokeLink: destPath=${destPath}`);
-          const linkResult = await PluginNoteAPI.setLassoStrokeLink({
-            destPath,
-            destPage: 0,
-            style: 2,
-            linkType: 4,
-          });
-          log('QuickAdd', `setLassoStrokeLink result: ${JSON.stringify(linkResult)}`);
-          await PluginNoteAPI.saveCurrentNote();
-        }
-
-        // Final lasso: select the text for repositioning (persists after plugin closes)
-        const lr2 = lassoRect(textRect);
-        log('QuickAdd', `Re-lasso text: ${JSON.stringify(lr2)}`);
-        const reLassoResult = await (PluginCommAPI as any).lassoElements(lr2);
-        log('QuickAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
+        log('QuickAdd', `lassoElements for reposition: ${JSON.stringify(lr)}`);
+        const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
+        log('QuickAdd', `lassoElements: ${JSON.stringify(lassoResult)}`);
       } catch (e: any) {
-        log('QuickAdd', `Re-lasso text failed: ${e.message}`);
+        log('QuickAdd', `Re-lasso failed (non-fatal): ${e.message}`);
       }
 
       setMarkDone('text');

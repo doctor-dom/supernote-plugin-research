@@ -4,7 +4,43 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 26 in progress.** Bezel swipe gesture (F-014) confirmed on-device. Next: add configuration for swipe target (tab, project).
+**Session 27 complete.** Bezel swipe config, convert-to-text optimization, project filter fix. Released v0.2.0-beta.
+
+## Session 27 -- Bezel swipe config (F-014), SDK optimization, project filter (B-004)
+
+Branch: `main`
+
+### What's done
+
+1. **F-014 DONE: Bezel swipe target config** -- Configurable in Settings > Preferences. Options: Default tab, Today, Upcoming, Projects, or Specific project. Overlay picker for project selection. Deep link navigates directly to project-view or task-home with the chosen tab. Safe fallback to default tab when target is 'project' but no project configured.
+
+2. **Convert-to-text optimization: 9 SDK calls -> 4** -- Replaced the hybrid `insertText` + `lassoElements` + `setLassoStrokeLink` pattern with a single `insertTextLink` call. Removed 2 intermediate `saveCurrentNote` calls and the unnecessary `reloadFile`. Result: ~1 second instead of ~3 seconds on-device. See `docs/design-sdk-optimization.md`.
+
+3. **B-004 partial fix: Projects tab honors enabledProjectIds** -- Projects tab now shows all projects (including empty ones like Inbox). When `enabledProjectIds` is set in Settings, only selected projects appear. Previously, empty projects were hidden and the filter setting was ignored. Today/Upcoming tab filtering still open.
+
+4. **ProjectView back button fix** -- Back from a deep-linked project-view (bezel swipe) now falls back to `resetTo('task-home')` when there's no stack to pop.
+
+5. **Nomad confirmed: same dimensions as A5X** -- Device type 4, page size 1404x1872, EMR range maxX=15819 maxY=11864. All within A5X parameters. B-014 downgraded -- hardcoded values are correct for both devices.
+
+6. **App.tsx deep link support** -- `getInitialScreen()` handles `view-project` action and dynamic `focusTab` for first-mount path.
+
+### Key findings
+
+- **Native bridge round-trips are the bottleneck** -- each SDK `await` crosses the RN native bridge to the Android AIDL service. On e-ink hardware, fewer sequential calls matters more than faster individual calls.
+- **`insertTextLink` is dramatically faster** than the hybrid insert+lasso+link approach. Trade-off: breaking the link removes the text (atomic), but the task lives in Todoist regardless.
+- **Intermediate saves are unnecessary** -- `deleteLassoElements` and `insertTextLink` both operate on in-memory note state. A single `saveCurrentNote` at the end flushes everything.
+- **`reloadFile` is unnecessary under the plugin view** -- the plugin's full-screen RN view covers the note. Display refreshes when the plugin closes.
+
+### Next session
+
+- **T-004: SDK call optimization pass** -- Apply the optimization principles from `docs/design-sdk-optimization.md` to remaining hot paths. See tracker for specific locations and approach.
+- **B-004 remaining: Today/Upcoming tab filtering** -- `enabledProjectIds` is honored in Projects tab but not yet applied to Today/Upcoming views.
+- **B-014 cleanup** -- Replace hardcoded A5X fallbacks with device-type lookup (low priority, values are correct for both devices).
+- **Strip verbose diagnostic logging** -- fetchPageHeight logs, bezel config debug logs.
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- v0.2.0 (versionCode 4), bezel swipe config + convert-to-text optimization + project filter
 
 ## Session 26 -- Bezel swipe gesture (F-014), Nomad device audit
 
@@ -26,13 +62,6 @@ Branch: `phase3-harmony`
 - **Bezel edge threshold works at 1%** -- y > pageHeight * 0.99. On A5X that's y > ~1853. Touches at y=1868-1871 consistently trigger it.
 - **3-finger swipes from bottom edge have zero conflicts** with existing gestures (long press, lasso-add) or system gestures. The bezel zone is too narrow for accidental activation.
 - **`getPageSize()` returns `{result: {width, height}}`** on A5X -- confirmed from pre-scan fallback log.
-
-### Next session
-
-- **F-014 config: bezel swipe target** -- Add settings for what the swipe opens: specific tab (today/upcoming/projects), specific project, or default screen. Add to Settings > Preferences alongside the Quick Add Gesture toggle.
-- **B-014: Nomad testing** -- Get `getDeviceType()`, `getPageSize()`, and element maxX/maxY from a Nomad user to confirm dimensions and EMR range. Then fix hardcoded defaults.
-- **B-004: Project filter not honored** -- Selected projects in settings aren't filtering today/upcoming/projects views.
-- **Remove verbose fetchPageHeight diagnostics** -- The extra logging was for debugging; strip it down to essential logs only.
 
 ### Builds
 

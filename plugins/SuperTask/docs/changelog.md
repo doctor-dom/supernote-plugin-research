@@ -7,6 +7,17 @@
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
 > - Session state: `PROGRESS.md` -- current session handoff notes
 
+## 2026-06-06 (session 27)
+
+### F-014: Bezel swipe configurable target
+**Resolution:** Bezel swipe target is now configurable in Settings > Preferences. Options: Default tab, Today, Upcoming, Projects, or Specific project (overlay picker). Gesture detector reads config on each swipe and sets the appropriate deep link. Both first-mount (getInitialScreen) and re-show (__superTaskNavigate) paths handle `view-project` action. Confirmed on A5X and Nomad.
+
+### SDK optimization: Convert-to-text (9 calls -> 4)
+**Resolution:** Replaced hybrid pattern (`insertText` + `lassoElements` + `setLassoStrokeLink` + 3x `saveCurrentNote` + `reloadFile`) with `insertTextLink` (atomic text+link in one SDK call) + single `saveCurrentNote`. Reduced from 9 sequential native bridge round-trips to 4. On-device improvement from ~3 seconds to ~1 second. Trade-off: breaking link removes text (atomic), but task persists in Todoist. See `design-sdk-optimization.md` for principles.
+
+### B-004 (partial): Projects tab honors enabledProjectIds
+**Resolution:** Projects tab now shows all projects including empty ones (e.g., Inbox). When `enabledProjectIds` is set in Settings, only selected projects appear. Previously the tab filtered to projects with active tasks only, hiding configured projects and making the setting feel broken. Today/Upcoming filtering still open.
+
 ## 2026-05-25 (session 23)
 
 ### F-015: Lasso-add gate for linked content
