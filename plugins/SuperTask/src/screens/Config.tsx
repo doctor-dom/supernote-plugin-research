@@ -58,6 +58,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [showTokenInfo, setShowTokenInfo] = useState(false);
   const [showGestureInfo, setShowGestureInfo] = useState(false);
   const [showBezelProjectPicker, setShowBezelProjectPicker] = useState(false);
+  const [partnerLinkTemplate, setPartnerLinkTemplate] = useState('');
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -82,6 +83,7 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.bezelSwipeTarget) setBezelSwipeTarget(config.bezelSwipeTarget);
       if (config.bezelSwipeProjectId) setBezelSwipeProjectId(config.bezelSwipeProjectId);
       if (config.bezelSwipeProjectName) setBezelSwipeProjectName(config.bezelSwipeProjectName);
+      if (config.partnerLinkTemplate) setPartnerLinkTemplate(config.partnerLinkTemplate);
 
       setConfigSource(getConfigSource());
 
@@ -157,6 +159,7 @@ export default function Config({onNavigate, nav}: Props) {
       bezelSwipeTarget,
       bezelSwipeProjectId,
       bezelSwipeProjectName,
+      partnerLinkTemplate: partnerLinkTemplate.trim(),
     });
     setSaving(false);
     setSaveStatus(saved ? 'Saved to device' : 'Saved (session only)');
@@ -397,6 +400,28 @@ export default function Config({onNavigate, nav}: Props) {
           </Pressable>
         ))}
       </View>
+
+      {/* ── Source file links ── */}
+      <View style={s.separator} />
+      <Text style={s.groupTitle}>Source File Links</Text>
+      <Text style={s.hint}>
+        Supernote Partner has no documented public deep-link URL. Tasks include the
+        cloud-relative path (e.g. Note/MyFile.note) so you can find the file in Partner.
+        If you discover a working link format, enter a template below.
+      </Text>
+
+      <Text style={s.sectionTitle}>Partner link template (optional)</Text>
+      <TextInput
+        style={s.input}
+        value={partnerLinkTemplate}
+        onChangeText={setPartnerLinkTemplate}
+        placeholder="{cloudPath} placeholders — leave empty if unknown"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      <Text style={s.hint}>
+        Placeholders: {'{cloudPath}'}, {'{page}'}, {'{filename}'}, {'{encodedCloudPath}'}
+      </Text>
 
       {/* ── Advanced ── */}
       <View style={s.separator} />

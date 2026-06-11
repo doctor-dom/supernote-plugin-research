@@ -22,6 +22,7 @@ import {setConfigLoader, createTask, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
 import {recognizeLassoElements} from '../utils/ocr';
 import {addTask as registryAddTask} from '../utils/taskRegistry';
+import {buildCaptureDescription} from '../utils/partnerLink';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
 
@@ -194,14 +195,21 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     setStatusText('Adding to Todoist...');
 
     try {
-      // Build description with note context back-reference
       let fullDescription = description.trim();
+      let cloudPath = '';
       const nc = noteContextRef.current;
-      if (nc) {
-        const noteRef = `\n\n---\n[SuperTask] Captured from: ${nc.filePath} p.${nc.pageNum}`;
-        fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
+      if (nc?.filePath) {
+        setStatusText('Building source link...');
+        const captured = await buildCaptureDescription(nc);
+        cloudPath = captured.cloudPath;
+        if (captured.block) {
+          fullDescription = fullDescription
+            ? fullDescription + captured.block
+            : captured.block.trim();
+        }
       }
 
+      setStatusText('Adding to Todoist...');
       const task = await createTask({
         content: content.trim(),
         description: fullDescription || undefined,
@@ -212,12 +220,13 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       createdTaskRef.current = task;
 
       // Write to local task registry
-      if (nc && task?.id) {
+      if (nc?.filePath && task?.id) {
         await registryAddTask(task.id, {
           content: content.trim(),
           noteFile: nc.filePath.split('/').pop() || '',
           notePath: nc.filePath,
           pageNum: nc.pageNum,
+          cloudPath,
         });
       }
 

@@ -55,11 +55,13 @@ async function write(registry) {
 /**
  * Add a task to the registry after creation.
  */
-export async function addTask(taskId, {content, noteFile, pageNum, completed = false}) {
+export async function addTask(taskId, {content, noteFile, notePath, pageNum, cloudPath, completed = false}) {
   const registry = await read();
   registry.tasks[taskId] = {
     content,
     noteFile,
+    notePath: notePath || '',
+    cloudPath: cloudPath || '',
     pageNum,
     createdAt: new Date().toISOString(),
     completed,

@@ -34,17 +34,17 @@ type Props = {
   projects: any[];
 };
 
-// Parse note context from description: "[SuperTask] Captured from: {path} p.{N}"
-// Supports both full path (/storage/.../file.note) and legacy filename-only (file.note)
+// Parse note context from description footer ending with:
+// [SuperTask] Captured from: {path} p.{N}
 function parseNoteContext(desc: string): {notePath: string; noteFile: string; pageNum: number; userDescription: string} | null {
   if (!desc) return null;
-  const match = desc.match(/\[SuperTask\] Captured from: (.+\.note) p\.(\d+)/);
+  const match = desc.match(/\[SuperTask\] Captured from: (.+\.(?:note|pdf)) p\.(\d+)/i);
   if (!match) return null;
-  const userDescription = desc.replace(/\n*---\n\[SuperTask\] Captured from: .+$/, '').trim();
+  const userDescription = desc.replace(/\n*---[\s\S]*$/, '').trim();
   const raw = match[1];
   const isFullPath = raw.startsWith('/');
   return {
-    notePath: isFullPath ? raw : '',  // empty = legacy, must resolve
+    notePath: isFullPath ? raw : '',
     noteFile: raw.split('/').pop() || raw,
     pageNum: parseInt(match[2], 10),
     userDescription,

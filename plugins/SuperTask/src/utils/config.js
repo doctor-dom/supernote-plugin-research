@@ -44,6 +44,9 @@ const DEFAULT_CONFIG = {
   bezelSwipeTarget: 'default', // 'default', 'today', 'upcoming', 'projects', or 'project'
   bezelSwipeProjectId: null,   // target project ID (when bezelSwipeTarget === 'project')
   bezelSwipeProjectName: null, // cached project name for navigation
+  // Optional Partner deep-link template (no official format documented by Ratta).
+  // Placeholders: {cloudPath}, {encodedCloudPath}, {page}, {filename}, {devicePath}, {encodedDevicePath}
+  partnerLinkTemplate: '',
 };
 
 // Fields that get obfuscated on disk

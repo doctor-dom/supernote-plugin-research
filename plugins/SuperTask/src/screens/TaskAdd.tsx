@@ -17,6 +17,7 @@ import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
 import {addTask as registryAddTask} from '../utils/taskRegistry';
+import {buildCaptureDescription} from '../utils/partnerLink';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
 import DatePicker from '../components/DatePicker';
@@ -92,13 +93,20 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     setStatus('Adding to Todoist...');
 
     try {
-      // Build description with note context back-reference
+      // Build description with optional page snapshot / file export link
       let fullDescription = description.trim();
-      if (captureMode === 'lasso' && noteContext) {
-        const noteRef = `\n\n---\n[SuperTask] Captured from: ${noteContext.filePath} p.${noteContext.pageNum}`;
-        fullDescription = fullDescription ? fullDescription + noteRef : noteRef.trim();
+      let cloudPath = '';
+      if (noteContext?.filePath) {
+        const captured = await buildCaptureDescription(noteContext);
+        cloudPath = captured.cloudPath;
+        if (captured.block) {
+          fullDescription = fullDescription
+            ? fullDescription + captured.block
+            : captured.block.trim();
+        }
       }
 
+      setStatus('Adding to Todoist...');
       const task = await createTask({
         content: content.trim(),
         description: fullDescription || undefined,
@@ -110,7 +118,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       setCreatedTask(task);
 
       // Auto-mark: dashed border with task ID encoded in link destPath.
-      if (captureMode === 'lasso' && noteContext) {
+      if (captureMode === 'lasso' && noteContext?.filePath) {
         try {
           setStatus('Marking task...');
           const destPath = `supertask://task/${task?.id}`;
@@ -128,13 +136,15 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         } catch (err: any) {
           log('TaskAdd', `Auto-mark failed (non-fatal): ${err.message}`);
         }
+      }
 
-        // Write to local task registry
-        await registryAddTask(task?.id, {
+      if (noteContext?.filePath && task?.id) {
+        await registryAddTask(task.id, {
           content: content.trim(),
           noteFile: noteContext.filePath.split('/').pop() || '',
           notePath: noteContext.filePath,
           pageNum: noteContext.pageNum,
+          cloudPath,
         });
       }
 

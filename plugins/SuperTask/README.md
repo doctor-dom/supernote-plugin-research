@@ -65,6 +65,22 @@ After creating a task, you have two options for marking the original handwriting
 
 Either way, the content on your note page is linked to the task in Todoist, and vice versa.
 
+### Source file links in Todoist
+
+Each captured task includes a footer in its Todoist description with the **Supernote Cloud path** to the source file (e.g. `Note/Meeting.note page 3`). This matches the folder structure synced by [Supernote Partner](https://support.supernote.com/Tools-Features/1753209-supernote-partner-app-for-mobile) and [Supernote Cloud](https://cloud.supernote.com).
+
+Example footer:
+
+```
+---
+Supernote path: Note/Meeting.note page 3
+[SuperTask] Captured from: /storage/emulated/0/Note/Meeting.note p.3
+```
+
+**Partner deep links:** Ratta does not currently document a public URL scheme to open a specific `.note` or `.pdf` directly in Supernote Partner from an external link (Android or desktop). Until that exists, use **View Note** inside SuperTask on the tablet, or open the file manually in Partner using the cloud path above.
+
+If you discover a working Partner URL format, you can set an optional **Partner link template** in Settings (placeholders: `{cloudPath}`, `{page}`, `{filename}`).
+
 ### Quick capture with finger gesture
 
 If enabled in settings (Preferences > Handwriting), you can hold your finger on the page for 400ms then drag to draw a selection area. This opens the quick-add overlay directly, skipping the lasso tool step.
@@ -109,6 +125,7 @@ Open SuperTask's settings via the gear icon (Settings > Apps > Plugins > SuperTa
 - **Show projects** -- filter which Todoist projects appear in the plugin
 - **Default project** -- where new tasks go by default
 - **Mark as text font size** -- text size for "Convert to Text" output
+- **Source file links** -- optional Partner link template (experimental)
 - **Quick capture gesture** -- enable/disable the finger hold-and-drag gesture
 - **Debug mode** -- show diagnostic tools (for development)
 
@@ -118,6 +135,7 @@ Open SuperTask's settings via the gear icon (Settings > Apps > Plugins > SuperTa
 - **OCR quality** depends on handwriting clarity. The on-device recognition works best with clearly separated words.
 - **Cross-note navigation** uses temporary link elements as a workaround (see above). This will improve as the SDK adds direct note navigation APIs.
 - **Note renames** break task back-references. If you rename a .note file after capturing tasks from it, the "View Note" link won't resolve.
+- **Partner deep links** are not officially supported. Todoist task descriptions include the cloud path for manual lookup in Partner; one-click open from Todoist on phone/PC is not available today.
 - **No background sync.** The plugin can only sync when its UI is open. Task status changes made in Todoist are fetched on next open.
 
 ## Tested devices

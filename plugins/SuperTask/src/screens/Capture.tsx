@@ -286,17 +286,27 @@ export default function Capture({mode, nav}: Props) {
       }
 
       const content = text.trim();
+      let filePath = '';
       let fileName = 'document';
+      let pageNum = 0;
       try {
-        const filePath = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
-        fileName = filePath?.result?.split('/').pop() || 'document';
+        const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
+        filePath = fp?.result || '';
+        fileName = filePath.split('/').pop() || 'document';
       } catch (e: any) {
         addTrace(`getCurrentFilePath failed: ${e.message}`);
       }
+      try {
+        const pn = await withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum');
+        pageNum = pn?.result ?? 0;
+      } catch (e: any) {
+        addTrace(`getCurrentPageNum failed: ${e.message}`);
+      }
 
       const description = `From: ${fileName}`;
+      const noteContext = filePath ? {filePath, pageNum} : null;
       addTrace(`Done: "${content.slice(0, 40)}" -- ${description}`);
-      return {content, description};
+      return {content, description, noteContext};
     } catch (err: any) {
       addTrace(`captureDocText ERROR: ${err.message}`);
       setError(`Capture error: ${err.message}`);
