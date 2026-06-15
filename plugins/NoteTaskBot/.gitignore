@@ -6,4 +6,5 @@ android/local.properties
 ios/Pods/
 *.snplg
 config.local.js
+local-build.ps1
 .DS_Store
