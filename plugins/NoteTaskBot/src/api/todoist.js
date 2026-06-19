@@ -5,7 +5,8 @@
 import {log} from '../utils/debug';
 
 const TODOIST_API = 'https://api.todoist.com/api/v1';
-export const TARGET_PROJECT_NAME = 'NOTE TaskBot';
+/** NOTE TaskBot 📨🤖 — use project ID, not display name (name includes emojis). */
+export const DEFAULT_TARGET_PROJECT_ID = '6fVCFGxCf6MVJwm8';
 
 let _configLoader = null;
 
@@ -70,13 +71,11 @@ export async function getProjects() {
   return fetchAllPages('/projects');
 }
 
-export async function getProjectByName(name) {
-  const projects = await getProjects();
-  const match = projects.find(p => p.name === name);
-  if (!match) {
-    throw new Error(`Todoist project not found: "${name}". Create it in Todoist first.`);
-  }
-  return match;
+export async function getTargetProject() {
+  const config = await _configLoader();
+  const projectId = config.targetProjectId || DEFAULT_TARGET_PROJECT_ID;
+  log('API', `Using target project id=${projectId}`);
+  return {id: projectId};
 }
 
 export async function findTopLevelTask(projectId, content) {
@@ -123,11 +122,13 @@ export async function createSubtasks(projectId, parentId, lines) {
 
 export async function testConnection() {
   const projects = await getProjects();
-  const target = projects.find(p => p.name === TARGET_PROJECT_NAME);
+  const targetId = (await _configLoader()).targetProjectId || DEFAULT_TARGET_PROJECT_ID;
+  const target = projects.find(p => p.id === targetId);
   return {
     ok: true,
     projectCount: projects.length,
     hasTargetProject: !!target,
-    targetProjectId: target?.id || null,
+    targetProjectId: targetId,
+    targetProjectName: target?.name || null,
   };
 }

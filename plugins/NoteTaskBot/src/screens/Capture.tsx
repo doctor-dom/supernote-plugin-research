@@ -12,8 +12,7 @@ import {recognizeLassoElements} from '../utils/ocr';
 import {markCaptureSuccess} from '../utils/checkboxMark';
 import {
   setConfigLoader,
-  TARGET_PROJECT_NAME,
-  getProjectByName,
+  getTargetProject,
   ensureParentTask,
   createSubtasks,
 } from '../api/todoist';
@@ -94,8 +93,8 @@ export default function Capture() {
       const fileName = fileBaseName(filePath);
       const dateStr = formatDate();
 
-      setStatus(`Connecting to Todoist (${TARGET_PROJECT_NAME})...`);
-      const project = await getProjectByName(TARGET_PROJECT_NAME);
+      setStatus('Connecting to Todoist...');
+      const project = await getTargetProject();
 
       setStatus('Creating parent task...');
       const parent = await ensureParentTask(project.id, fileName, dateStr);
