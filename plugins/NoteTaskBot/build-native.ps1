@@ -1,42 +1,91 @@
 # Full native build for NoteTaskBot (.snplg with react-native-fs)
-# Usage:
-#   $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.8.9-hotspot"
-#   $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
-#   powershell -ExecutionPolicy Bypass -File build-native.ps1
+# Usage (PowerShell, from this directory):
+#   npm install
+#   powershell -ExecutionPolicy Bypass -File .\build-native.ps1
+#
+# Optional: copy local-build.ps1.example to local-build.ps1 and set JAVA_HOME / ANDROID_HOME.
+# On Windows use buildPlugin.ps1 or build-native.ps1 — not bash buildPlugin.sh.
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+function Resolve-JavaHome {
+    if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
+        return $env:JAVA_HOME
+    }
+    $javaCmd = Get-Command java -ErrorAction SilentlyContinue
+    if ($javaCmd -and $javaCmd.Source) {
+        $binDir = Split-Path $javaCmd.Source -Parent
+        return (Split-Path $binDir -Parent)
+    }
+    $microsoftJdks = Get-ChildItem 'C:\Program Files\Microsoft' -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'jdk*' } |
+        Sort-Object Name -Descending
+    foreach ($jdk in $microsoftJdks) {
+        if (Test-Path (Join-Path $jdk.FullName 'bin\java.exe')) {
+            return $jdk.FullName
+        }
+    }
+    return $null
+}
+
+function Resolve-AndroidHome {
+    if ($env:ANDROID_HOME -and (Test-Path $env:ANDROID_HOME)) {
+        return $env:ANDROID_HOME
+    }
+    $defaultSdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+    if (Test-Path $defaultSdk) {
+        return $defaultSdk
+    }
+    return $null
+}
 
 if (Test-Path (Join-Path $root 'local-build.ps1')) {
     . (Join-Path $root 'local-build.ps1')
 }
 
-if (-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
-    Write-Error "JAVA_HOME must point to a JDK install (bin\java.exe not found). Current: '$($env:JAVA_HOME)'"
+$resolvedJava = Resolve-JavaHome
+$resolvedAndroid = Resolve-AndroidHome
+
+if (-not $resolvedJava) {
+    Write-Error "JAVA_HOME must point to a JDK install (bin\java.exe not found). Current: '$($env:JAVA_HOME)'. Run: where java"
 }
-if (-not $env:ANDROID_HOME -or -not (Test-Path $env:ANDROID_HOME)) {
-    Write-Error "ANDROID_HOME must point to the Android SDK root. Current: '$($env:ANDROID_HOME)'"
+if (-not $resolvedAndroid) {
+    Write-Error "ANDROID_HOME must point to the Android SDK root. Current: '$($env:ANDROID_HOME)'. Install Android Studio SDK or set ANDROID_HOME."
 }
+
+$env:JAVA_HOME = $resolvedJava
+$env:ANDROID_HOME = $resolvedAndroid
+
+Write-Host "JAVA_HOME=$($env:JAVA_HOME)" -ForegroundColor Green
+Write-Host "ANDROID_HOME=$($env:ANDROID_HOME)" -ForegroundColor Green
 
 $sdkDir = $env:ANDROID_HOME -replace '\\', '/'
 $localProps = Join-Path $root 'android\local.properties'
 "sdk.dir=$sdkDir" | Set-Content -Path $localProps -Encoding ASCII
 Write-Host "Wrote $localProps" -ForegroundColor Green
 
-Remove-Item -Recurse -Force (Join-Path $root 'build') -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force (Join-Path $root 'android\app\build') -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force (Join-Path $root 'android\.gradle') -ErrorAction SilentlyContinue
-
 Push-Location $root
 try {
+    npm install
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "npm install failed (exit $LASTEXITCODE). Fix dependency errors above before building."
+    }
+
+    Remove-Item -Recurse -Force (Join-Path $root 'build') -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force (Join-Path $root 'android\app\build') -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force (Join-Path $root 'android\.gradle') -ErrorAction SilentlyContinue
+
     & (Join-Path $root 'buildPlugin.ps1')
 } finally {
     Pop-Location
 }
 
 $out = Join-Path $root 'build\outputs\NoteTaskBot.snplg'
-if (-not (Test-Path $out)) {
-    Write-Error "Build failed: $out not found"
+$outExists = Test-Path $out
+
+if (-not $outExists) {
+    Write-Error "Build failed: $out not found. On Windows use build-native.ps1, not bash buildPlugin.sh."
 }
 
 $sizeMb = [math]::Round((Get-Item $out).Length / 1MB, 2)
