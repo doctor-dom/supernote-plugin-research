@@ -1,7 +1,7 @@
 {
   "name": "NoteTaskBot",
   "desc": "Lasso handwriting to Todoist subtasks under a daily capture parent task",
-  "iconPath": "assets/icon.png",
+  "iconPath": "assets/checkbox-done.png",
   "versionName": "0.1.0",
   "versionCode": "3",
   "pluginID": "notetaskbot001",
