@@ -16,7 +16,7 @@ AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
 
-const icon = Image.resolveAssetSource(require('./assets/icon.png')).uri;
+const icon = Image.resolveAssetSource(require('./assets/checkbox-done.png')).uri;
 
 PluginManager.registerButton(2, ['NOTE'], {
   id: 200,
