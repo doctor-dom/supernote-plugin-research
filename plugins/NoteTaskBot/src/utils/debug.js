@@ -5,6 +5,18 @@
 const MAX_ENTRIES = 300;
 const entries = [];
 let _listener = null;
+let _sessionId = 0;
+
+export function startLogSession(label) {
+  _sessionId += 1;
+  entries.length = 0;
+  log('Session', `#${_sessionId} ${label}`);
+  return _sessionId;
+}
+
+export function getSessionId() {
+  return _sessionId;
+}
 
 let _debugServerUrl = '';
 try {

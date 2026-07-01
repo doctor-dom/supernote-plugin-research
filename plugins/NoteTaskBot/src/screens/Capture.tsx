@@ -6,18 +6,28 @@ import React, {useEffect, useState} from 'react';
 import {View, Text, Pressable, StyleSheet, ScrollView} from 'react-native';
 import {PluginCommAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
-import {loadConfig} from '../utils/config';
-import {log, logError, getEntries, exportLog} from '../utils/debug';
+import {loadConfig, getConfigSource} from '../utils/config';
+import {log, logError, getEntries, exportLog, startLogSession} from '../utils/debug';
 import {recognizeLassoElements} from '../utils/ocr';
-import {markCaptureSuccess} from '../utils/checkboxMark';
 import {
   setConfigLoader,
   getTargetProject,
   ensureParentTask,
   createSubtasks,
+  testConnection,
 } from '../api/todoist';
 
-type Phase = 'working' | 'success' | 'error';
+type Phase = 'working' | 'review' | 'error';
+
+type CaptureReview = {
+  ocrText: string;
+  projectName: string;
+  projectId: string;
+  parentTitle: string;
+  parentId: string;
+  parentReused: boolean;
+  subtasks: Array<{id: string; content: string}>;
+};
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -45,10 +55,46 @@ function fileBaseName(filePath: string): string {
   return name.replace(/\.note$/i, '');
 }
 
+function ReviewPanel({review, onClose}: {review: CaptureReview; onClose: () => void}) {
+  return (
+    <ScrollView style={s.reviewScroll} contentContainerStyle={s.reviewContent}>
+      <Text style={s.sectionTitle}>Recognized text</Text>
+      <View style={s.block}>
+        <Text style={s.ocrText}>{review.ocrText}</Text>
+      </View>
+
+      <Text style={s.sectionTitle}>Todoist project</Text>
+      <Text style={s.bodyText}>{review.projectName}</Text>
+
+      <Text style={s.sectionTitle}>Parent task</Text>
+      <View style={s.block}>
+        <Text style={s.parentText}>{review.parentTitle}</Text>
+        {review.parentReused ? (
+          <Text style={s.hintText}>Existing capture for today — new subtasks added below.</Text>
+        ) : null}
+      </View>
+
+      <Text style={s.sectionTitle}>
+        Subtasks ({review.subtasks.length})
+      </Text>
+      {review.subtasks.map((task, i) => (
+        <View key={task.id} style={s.subtaskRow}>
+          <Text style={s.subtaskBullet}>{i + 1}.</Text>
+          <Text style={s.subtaskText}>{task.content}</Text>
+        </View>
+      ))}
+
+      <Pressable style={[s.btn, s.btnPrimary]} onPress={onClose}>
+        <Text style={[s.btnText, s.btnPrimaryText]}>Close</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
 export default function Capture() {
   const [phase, setPhase] = useState<Phase>('working');
   const [status, setStatus] = useState('Starting...');
-  const [detail, setDetail] = useState('');
+  const [review, setReview] = useState<CaptureReview | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [logLines, setLogLines] = useState<string[]>([]);
 
@@ -58,7 +104,30 @@ export default function Capture() {
   }, []);
 
   const runCapture = async () => {
+    startLogSession('capture');
+    setPhase('working');
+    setReview(null);
     try {
+      setStatus('Loading config...');
+      const config = await loadConfig();
+      if (!config.apiToken) {
+        throw new Error(
+          'No Todoist API token. Connect via USB and edit MyStyle/NoteTaskBot/notetaskbot-config.json ' +
+          '(set apiToken). If SuperTask is already configured, rebuild with the latest plugin to reuse that token.',
+        );
+      }
+      log('Capture', `Config source: ${getConfigSource()}`);
+
+      setStatus('Checking Todoist...');
+      const conn = await testConnection();
+      if (!conn.hasTargetProject) {
+        throw new Error(
+          `Todoist project not found (id=${conn.targetProjectId}). ` +
+          'Update targetProjectId in notetaskbot-config.json.',
+        );
+      }
+      log('Capture', `Todoist OK: project "${conn.targetProjectName}"`);
+
       setStatus('Reading lasso selection...');
       const lasso = await withTimeout(
         PluginCommAPI.getLassoElements(),
@@ -81,14 +150,6 @@ export default function Capture() {
         throw new Error('No task lines found after recognition.');
       }
 
-      let bounds = null;
-      try {
-        const lr = await withTimeout(PluginCommAPI.getLassoRect(), 5000, 'getLassoRect');
-        if (lr?.success && lr.result) bounds = lr.result;
-      } catch (e: any) {
-        log('Capture', `getLassoRect failed: ${e.message}`);
-      }
-
       const filePath = ocr.pageContext?.filePath || '';
       const fileName = fileBaseName(filePath);
       const dateStr = formatDate();
@@ -97,20 +158,35 @@ export default function Capture() {
       const project = await getTargetProject();
 
       setStatus('Creating parent task...');
-      const parent = await ensureParentTask(project.id, fileName, dateStr);
+      const {task: parent, reused: parentReused} = await ensureParentTask(
+        project.id,
+        fileName,
+        dateStr,
+      );
       const parentId = parent?.id;
       if (!parentId) throw new Error('Failed to create parent task');
 
       setStatus(`Adding ${lines.length} subtask(s)...`);
       const created = await createSubtasks(project.id, parentId, lines);
 
-      setStatus('Marking note...');
-      await markCaptureSuccess(bounds);
+      const parentTitle = parent.content || `Task Capture ${fileName} | ${dateStr}`;
+      const subtasks = created.map(t => ({id: t.id, content: t.content}));
 
-      setDetail(`${created.length} subtask(s) under "${parent.content}"`);
-      setPhase('success');
-      setStatus('Done');
-      log('Capture', `Success: ${created.length} subtasks`);
+      setReview({
+        ocrText: ocr.text,
+        projectName: project.name || conn.targetProjectName || project.id,
+        projectId: project.id,
+        parentTitle,
+        parentId,
+        parentReused,
+        subtasks,
+      });
+      setPhase('review');
+      setStatus('Added to Todoist');
+      log(
+        'Capture',
+        `Review: ${subtasks.length} subtasks under "${parentTitle}" in ${project.name || project.id}`,
+      );
     } catch (err: any) {
       logError('Capture', err);
       setPhase('error');
@@ -155,32 +231,40 @@ export default function Capture() {
 
   return (
     <View style={s.overlay}>
-      <Pressable style={s.backdrop} onPress={handleClose} />
-      <View style={s.panel}>
+      <Pressable style={s.backdrop} onPress={phase === 'review' ? undefined : handleClose} />
+      <View style={[s.panel, phase === 'review' && s.panelTall]}>
         <Text style={s.title}>NoteTaskBot</Text>
-        <Text style={s.status}>{status}</Text>
-        {detail ? <Text style={s.detail}>{detail}</Text> : null}
 
-        {phase === 'success' && (
-          <Pressable style={[s.btn, s.btnPrimary]} onPress={handleClose}>
-            <Text style={[s.btnText, s.btnPrimaryText]}>Close</Text>
-          </Pressable>
+        {phase === 'working' && (
+          <Text style={s.status}>{status}</Text>
+        )}
+
+        {phase === 'review' && review && (
+          <>
+            <Text style={s.status}>{status}</Text>
+            <ReviewPanel review={review} onClose={handleClose} />
+          </>
         )}
 
         {phase === 'error' && (
-          <View style={s.row}>
-            <Pressable style={s.btn} onPress={runCapture}>
-              <Text style={s.btnText}>Retry</Text>
-            </Pressable>
-            <Pressable style={s.btn} onPress={handleClose}>
-              <Text style={s.btnText}>Close</Text>
-            </Pressable>
-          </View>
+          <>
+            <Text style={s.status}>{status}</Text>
+            <View style={s.row}>
+              <Pressable style={s.btn} onPress={runCapture}>
+                <Text style={s.btnText}>Retry</Text>
+              </Pressable>
+              <Pressable style={s.btn} onPress={handleClose}>
+                <Text style={s.btnText}>Close</Text>
+              </Pressable>
+            </View>
+          </>
         )}
 
-        <Pressable style={s.linkBtn} onPress={handleShowLog}>
-          <Text style={s.linkText}>Log</Text>
-        </Pressable>
+        {phase !== 'review' && (
+          <Pressable style={s.linkBtn} onPress={handleShowLog}>
+            <Text style={s.linkText}>Log</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -199,10 +283,14 @@ const s = StyleSheet.create({
   panel: {
     width: 520,
     maxWidth: '92%',
+    maxHeight: '88%',
     backgroundColor: '#ffffff',
     borderWidth: 2,
     borderColor: '#000000',
     padding: 24,
+  },
+  panelTall: {
+    flexShrink: 1,
   },
   title: {
     fontSize: 22,
@@ -213,13 +301,68 @@ const s = StyleSheet.create({
   status: {
     fontSize: 16,
     color: '#000000',
-    marginBottom: 8,
+    marginBottom: 12,
     lineHeight: 22,
   },
-  detail: {
+  reviewScroll: {
+    flexGrow: 0,
+    maxHeight: 520,
+  },
+  reviewContent: {
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  block: {
+    borderWidth: 1,
+    borderColor: '#000000',
+    padding: 10,
+    marginBottom: 4,
+  },
+  ocrText: {
     fontSize: 14,
     color: '#000000',
-    marginBottom: 16,
+    lineHeight: 20,
+  },
+  bodyText: {
+    fontSize: 14,
+    color: '#000000',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  parentText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+    lineHeight: 21,
+  },
+  hintText: {
+    fontSize: 12,
+    color: '#000000',
+    marginTop: 6,
+    lineHeight: 16,
+  },
+  subtaskRow: {
+    flexDirection: 'row',
+    marginBottom: 6,
+    paddingRight: 4,
+  },
+  subtaskBullet: {
+    width: 22,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  subtaskText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#000000',
+    lineHeight: 20,
   },
   row: {
     flexDirection: 'row',
@@ -235,7 +378,7 @@ const s = StyleSheet.create({
   },
   btnPrimary: {
     backgroundColor: '#000000',
-    marginTop: 12,
+    marginTop: 16,
   },
   btnText: {
     fontSize: 16,

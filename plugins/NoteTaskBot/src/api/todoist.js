@@ -75,12 +75,40 @@ export async function getTargetProject() {
   const config = await _configLoader();
   const projectId = config.targetProjectId || DEFAULT_TARGET_PROJECT_ID;
   log('API', `Using target project id=${projectId}`);
-  return {id: projectId};
+
+  const projects = await getProjects();
+  const match = projects.find(p => p.id === projectId);
+  if (!match) {
+    log('API', `WARNING: project id=${projectId} not found in account`);
+    return {id: projectId, name: null, missing: true};
+  }
+  return {id: projectId, name: match.name, missing: false};
+}
+
+function taskId(task) {
+  return task?.id ?? task?.task_id ?? task?.taskId ?? null;
+}
+
+function taskParentId(task) {
+  return task?.parent_id ?? task?.parentId ?? null;
+}
+
+function parseCreatedTask(result, content) {
+  if (!result || typeof result !== 'object') {
+    throw new Error(`Todoist returned empty response for "${content.slice(0, 40)}"`);
+  }
+  const id = taskId(result);
+  if (!id) {
+    throw new Error(
+      `Todoist response missing task id for "${content.slice(0, 40)}": ${JSON.stringify(result).slice(0, 120)}`,
+    );
+  }
+  return {...result, id, content: result.content || content};
 }
 
 export async function findTopLevelTask(projectId, content) {
   const tasks = await fetchAllPages('/tasks', `project_id=${projectId}`);
-  return tasks.find(t => t.content === content && !t.parent_id);
+  return tasks.find(t => t.content === content && !taskParentId(t));
 }
 
 export async function createTask({content, projectId, parentId}) {
@@ -89,10 +117,13 @@ export async function createTask({content, projectId, parentId}) {
   if (parentId) body.parent_id = parentId;
 
   log('API', `Creating task: "${content.slice(0, 40)}"${parentId ? ' (subtask)' : ''}`);
-  return todoistFetch('/tasks', {
+  const result = await todoistFetch('/tasks', {
     method: 'POST',
     body: JSON.stringify(body),
   });
+  const task = parseCreatedTask(result, content);
+  log('API', `Created id=${task.id}`);
+  return task;
 }
 
 /**
@@ -103,10 +134,12 @@ export async function ensureParentTask(projectId, fileName, dateStr) {
   const existing = await findTopLevelTask(projectId, title);
   if (existing) {
     log('API', `Using existing parent: ${title}`);
-    return existing;
+    const task = {...existing, id: taskId(existing), content: existing.content || title};
+    return {task, reused: true};
   }
   log('API', `Creating parent: ${title}`);
-  return createTask({content: title, projectId});
+  const task = await createTask({content: title, projectId});
+  return {task, reused: false};
 }
 
 export async function createSubtasks(projectId, parentId, lines) {
