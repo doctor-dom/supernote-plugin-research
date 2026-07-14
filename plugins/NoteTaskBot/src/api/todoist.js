@@ -209,15 +209,42 @@ export async function ensureParentTask(projectId, fileName, pageNum, dateStr) {
   return {task, reused: false};
 }
 
+function normalizeTaskContent(content) {
+  return (content || '').trim().toLowerCase();
+}
+
+export async function getChildTasks(projectId, parentId) {
+  const tasks = await fetchAllPages('/tasks', `project_id=${projectId}`);
+  return tasks.filter(t => taskParentId(t) === parentId);
+}
+
+/**
+ * Add subtasks under a parent, skipping lines that already exist as children.
+ * Returns both created tasks and skipped duplicate lines.
+ */
 export async function createSubtasks(projectId, parentId, lines) {
+  const existing = await getChildTasks(projectId, parentId);
+  const existingContents = new Set(existing.map(t => normalizeTaskContent(t.content)));
+
   const created = [];
+  const skipped = [];
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+
+    const key = normalizeTaskContent(trimmed);
+    if (existingContents.has(key)) {
+      skipped.push(trimmed);
+      log('API', `Skipping duplicate subtask: "${trimmed.slice(0, 40)}"`);
+      continue;
+    }
+
     const task = await createTask({content: trimmed, projectId, parentId});
     created.push(task);
+    existingContents.add(key);
   }
-  return created;
+
+  return {created, skipped};
 }
 
 export async function testConnection() {

@@ -9,6 +9,7 @@ import {closePlugin} from '../utils/closePlugin';
 import {loadConfig, getConfigSource} from '../utils/config';
 import {log, logError, getEntries, exportLog, startLogSession} from '../utils/debug';
 import {recognizeLassoElements} from '../utils/ocr';
+import {consumeCachedLasso, lassoFingerprint} from '../utils/lassoCache';
 import {
   setConfigLoader,
   getTargetProject,
@@ -28,6 +29,7 @@ type CaptureReview = {
   parentId: string;
   parentReused: boolean;
   subtasks: Array<{id: string; content: string}>;
+  skippedSubtasks: string[];
 };
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -54,6 +56,29 @@ function parseTaskLines(text: string): string[] {
 function fileBaseName(filePath: string): string {
   const name = filePath.split('/').pop() || 'note';
   return name.replace(/\.note$/i, '');
+}
+
+async function readLassoSelection(): Promise<any> {
+  const cached = consumeCachedLasso();
+  if (cached?.success && cached.result?.length) {
+    log(
+      'Capture',
+      `Using cached lasso: ${cached.result.length} elements [${lassoFingerprint(cached.result)}]`,
+    );
+    return cached;
+  }
+
+  log('Capture', 'No cached lasso; calling getLassoElements...');
+  const lasso = await withTimeout(
+    PluginCommAPI.getLassoElements(),
+    10000,
+    'getLassoElements',
+  );
+  log(
+    'Capture',
+    `Fresh lasso: ${lasso?.result?.length ?? 0} elements [${lassoFingerprint(lasso?.result ?? [])}]`,
+  );
+  return lasso;
 }
 
 function ReviewPanel({review, onClose}: {review: CaptureReview; onClose: () => void}) {
@@ -86,6 +111,13 @@ function ReviewPanel({review, onClose}: {review: CaptureReview; onClose: () => v
           <Text style={s.subtaskText}>{task.content}</Text>
         </View>
       ))}
+
+      {review.skippedSubtasks.length > 0 ? (
+        <Text style={s.hintText}>
+          Skipped {review.skippedSubtasks.length} duplicate line
+          {review.skippedSubtasks.length > 1 ? 's' : ''} already under this parent.
+        </Text>
+      ) : null}
 
       <Pressable style={[s.btn, s.btnPrimary]} onPress={onClose}>
         <Text style={[s.btnText, s.btnPrimaryText]}>Close</Text>
@@ -121,6 +153,13 @@ export default function Capture() {
       }
       log('Capture', `Config source: ${getConfigSource()}`);
 
+      setStatus('Reading lasso selection...');
+      const lasso = await readLassoSelection();
+
+      if (!lasso?.success || !lasso.result?.length) {
+        throw new Error('No elements selected. Lasso handwriting first.');
+      }
+
       setStatus('Checking Todoist...');
       const conn = await testConnection();
       if (!conn.hasTargetProject) {
@@ -130,17 +169,6 @@ export default function Capture() {
         );
       }
       log('Capture', `Todoist OK: project "${conn.targetProjectName}"`);
-
-      setStatus('Reading lasso selection...');
-      const lasso = await withTimeout(
-        PluginCommAPI.getLassoElements(),
-        10000,
-        'getLassoElements',
-      );
-
-      if (!lasso?.success || !lasso.result?.length) {
-        throw new Error('No elements selected. Lasso handwriting first.');
-      }
 
       setStatus('Recognizing handwriting...');
       const ocr = await recognizeLassoElements(lasso.result, msg => log('Capture', msg));
@@ -182,7 +210,16 @@ export default function Capture() {
       if (!parentId) throw new Error('Failed to create parent task');
 
       setStatus(`Adding ${lines.length} subtask(s)...`);
-      const created = await createSubtasks(project.id, parentId, lines);
+      const {created, skipped} = await createSubtasks(project.id, parentId, lines);
+
+      if (created.length === 0) {
+        if (skipped.length > 0) {
+          throw new Error(
+            'This text is already under today\'s parent task. Lasso a new line and try again.',
+          );
+        }
+        throw new Error('No new subtasks were created.');
+      }
 
       const parentTitle = parent.content || buildParentTitle(fileName, pageNum, dateStr);
       const subtasks = created.map(t => ({id: t.id, content: t.content}));
@@ -195,13 +232,25 @@ export default function Capture() {
         parentId,
         parentReused,
         subtasks,
+        skippedSubtasks: skipped,
       });
       setPhase('review');
-      setStatus('Added to Todoist');
+      setStatus(
+        skipped.length > 0
+          ? `Added ${subtasks.length} subtask(s); skipped ${skipped.length} duplicate(s)`
+          : 'Added to Todoist',
+      );
       log(
         'Capture',
-        `Review: ${subtasks.length} subtasks under "${parentTitle}" in ${project.name || project.id}`,
+        `Review: ${subtasks.length} new, ${skipped.length} skipped under "${parentTitle}"`,
       );
+
+      try {
+        await PluginCommAPI.setLassoBoxState(2);
+        log('Capture', 'Cleared lasso selection for next capture');
+      } catch (e: any) {
+        log('Capture', `setLassoBoxState failed: ${e.message}`);
+      }
     } catch (err: any) {
       logError('Capture', err);
       setPhase('error');
