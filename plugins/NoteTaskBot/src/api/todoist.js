@@ -93,6 +93,62 @@ function taskParentId(task) {
   return task?.parent_id ?? task?.parentId ?? null;
 }
 
+function isTaskCompleted(task) {
+  return !!(task?.checked || task?.completed || task?.is_completed);
+}
+
+function displayPageNum(pageNum) {
+  return Math.max(1, (pageNum ?? 0) + 1);
+}
+
+/**
+ * Parent title for a new capture: SN: <file name | page> date
+ * Example: SN: CHP Meeting | 3 2026-06-30
+ */
+export function buildParentTitle(fileName, pageNum, dateStr) {
+  const page = displayPageNum(pageNum);
+  return `SN: ${fileName} | ${page} ${dateStr}`;
+}
+
+/**
+ * Match any top-level parent for this note file on this date.
+ * Same document reuses one parent across multiple lasso captures (any page).
+ */
+export function matchesDocumentParent(content, fileName, dateStr) {
+  if (!content || !fileName || !dateStr) return false;
+
+  const snPrefix = `SN: ${fileName} |`;
+  const legacyPrefix = `Task Capture ${fileName} |`;
+
+  if (content.startsWith(snPrefix)) {
+    return content.endsWith(` ${dateStr}`);
+  }
+  if (content.startsWith(legacyPrefix)) {
+    return content === `${legacyPrefix} ${dateStr}` || content.endsWith(` ${dateStr}`);
+  }
+  return false;
+}
+
+export async function findDocumentParent(projectId, fileName, dateStr) {
+  const tasks = await fetchAllPages('/tasks', `project_id=${projectId}`);
+  const matches = tasks.filter(
+    t => !taskParentId(t) && matchesDocumentParent(t.content, fileName, dateStr),
+  );
+  if (matches.length === 0) return null;
+
+  // Prefer active SN:-prefixed parent, then any active match, then first match.
+  const score = t => {
+    let s = 0;
+    if (t.content?.startsWith('SN:')) s += 4;
+    if (!isTaskCompleted(t)) s += 2;
+    return s;
+  };
+  matches.sort((a, b) => score(b) - score(a));
+  const best = matches[0];
+  log('API', `Found document parent: "${best.content}" (${matches.length} candidate(s))`);
+  return best;
+}
+
 function parseCreatedTask(result, content) {
   if (!result || typeof result !== 'object') {
     throw new Error(`Todoist returned empty response for "${content.slice(0, 40)}"`);
@@ -106,9 +162,16 @@ function parseCreatedTask(result, content) {
   return {...result, id, content: result.content || content};
 }
 
-export async function findTopLevelTask(projectId, content) {
-  const tasks = await fetchAllPages('/tasks', `project_id=${projectId}`);
-  return tasks.find(t => t.content === content && !taskParentId(t));
+export async function reopenTask(taskId) {
+  log('API', `Reopening task ${taskId}`);
+  return todoistFetch(`/tasks/${taskId}/reopen`, {method: 'POST'});
+}
+
+async function ensureTaskActive(task) {
+  const id = taskId(task);
+  if (!id || !isTaskCompleted(task)) return task;
+  await reopenTask(id);
+  return {...task, checked: false, completed: false, is_completed: false};
 }
 
 export async function createTask({content, projectId, parentId}) {
@@ -127,16 +190,20 @@ export async function createTask({content, projectId, parentId}) {
 }
 
 /**
- * Find or create the daily parent task: "Task Capture <file> | YYYY-MM-DD"
+ * Find or create the document parent for today.
+ * Multiple lasso captures in the same note reuse this parent and append subtasks.
  */
-export async function ensureParentTask(projectId, fileName, dateStr) {
-  const title = `Task Capture ${fileName} | ${dateStr}`;
-  const existing = await findTopLevelTask(projectId, title);
+export async function ensureParentTask(projectId, fileName, pageNum, dateStr) {
+  const existing = await findDocumentParent(projectId, fileName, dateStr);
   if (existing) {
-    log('API', `Using existing parent: ${title}`);
-    const task = {...existing, id: taskId(existing), content: existing.content || title};
+    log('API', `Reusing parent for ${fileName} on ${dateStr}`);
+    const id = taskId(existing);
+    const active = await ensureTaskActive(existing);
+    const task = {...active, id, content: active.content || existing.content};
     return {task, reused: true};
   }
+
+  const title = buildParentTitle(fileName, pageNum, dateStr);
   log('API', `Creating parent: ${title}`);
   const task = await createTask({content: title, projectId});
   return {task, reused: false};

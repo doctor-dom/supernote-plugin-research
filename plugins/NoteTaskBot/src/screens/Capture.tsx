@@ -15,6 +15,7 @@ import {
   ensureParentTask,
   createSubtasks,
   testConnection,
+  buildParentTitle,
 } from '../api/todoist';
 
 type Phase = 'working' | 'review' | 'error';
@@ -70,7 +71,9 @@ function ReviewPanel({review, onClose}: {review: CaptureReview; onClose: () => v
       <View style={s.block}>
         <Text style={s.parentText}>{review.parentTitle}</Text>
         {review.parentReused ? (
-          <Text style={s.hintText}>Existing capture for today — new subtasks added below.</Text>
+          <Text style={s.hintText}>
+            Reused today&apos;s parent for this note — new subtasks appended below.
+          </Text>
         ) : null}
       </View>
 
@@ -150,17 +153,29 @@ export default function Capture() {
         throw new Error('No task lines found after recognition.');
       }
 
-      const filePath = ocr.pageContext?.filePath || '';
+      let filePath = ocr.pageContext?.filePath || '';
+      if (!filePath) {
+        try {
+          const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
+          filePath = fp?.result || '';
+          if (filePath) log('Capture', `Recovered filePath: ${filePath}`);
+        } catch (e: any) {
+          log('Capture', `getCurrentFilePath fallback failed: ${e.message}`);
+        }
+      }
+
       const fileName = fileBaseName(filePath);
+      const pageNum = ocr.pageContext?.pageNum ?? 0;
       const dateStr = formatDate();
 
       setStatus('Connecting to Todoist...');
       const project = await getTargetProject();
 
-      setStatus('Creating parent task...');
+      setStatus('Finding or creating parent task...');
       const {task: parent, reused: parentReused} = await ensureParentTask(
         project.id,
         fileName,
+        pageNum,
         dateStr,
       );
       const parentId = parent?.id;
@@ -169,7 +184,7 @@ export default function Capture() {
       setStatus(`Adding ${lines.length} subtask(s)...`);
       const created = await createSubtasks(project.id, parentId, lines);
 
-      const parentTitle = parent.content || `Task Capture ${fileName} | ${dateStr}`;
+      const parentTitle = parent.content || buildParentTitle(fileName, pageNum, dateStr);
       const subtasks = created.map(t => ({id: t.id, content: t.content}));
 
       setReview({

@@ -7,7 +7,7 @@ Capture handwritten task lists from Supernote notes and send them to Todoist.
 1. Write a list in a note (one task per line)
 2. Lasso the handwriting
 3. Tap **Capture Tasks** in the lasso menu
-4. The plugin OCRs your writing, creates a parent task named `Task Capture <note file> | <date>`, and adds each line as a subtask in your **EMAIL/SN TaskBot 📨📓🤖** Todoist project
+4. The plugin OCRs your writing, creates or reuses a parent task named `SN: <note file> | <page> <date>`, and adds each line as a subtask. Multiple lasso captures in the same note on the same day append to that parent.
 5. A review screen shows the recognized text, project, parent task, and subtasks created
 
 ## Requirements
