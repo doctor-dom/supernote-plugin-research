@@ -16,11 +16,11 @@ AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
 
-const icon = Image.resolveAssetSource(require('./assets/checkbox-done.png')).uri;
+const icon = Image.resolveAssetSource(require('./assets/icon.png')).uri;
 
 PluginManager.registerButton(2, ['NOTE'], {
   id: 200,
-  name: 'Capture Tasks',
+  name: '-> Todoist',
   icon,
   editDataTypes: [0, 1, 3],
   showType: 1,
